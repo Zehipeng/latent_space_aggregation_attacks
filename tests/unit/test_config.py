@@ -2,7 +2,14 @@ from pathlib import Path
 import pytest,yaml
 from latent_space_aggregation_attacks.core.config import load_config
 ROOT=Path(__file__).resolve().parents[2]
-def test_p0_config_is_valid(): assert load_config(ROOT/"configs/budget_pilot/p0.yaml")["master_seed"]==205
+def test_p0_config_is_valid():
+    config = load_config(ROOT / "configs/budget_pilot/p0.yaml")
+    assert config["master_seed"] == 205
+    assert config["N_values"] == [5]
+    assert config["lambda_values"] == [10000.0]
+    assert config["beta_values"] == [1.0]
+    assert config["visualization_key_ids"] == ["pilot_key_000", "pilot_key_001"]
+    assert config["retain_non_visualization_images"] is False
 def test_unfrozen_formal_config_fails_closed():
     with pytest.raises(ValueError,match="not frozen"): load_config(ROOT/"configs/formal/formal_template.yaml")
 def test_formal_online_detection_is_rejected(tmp_path):

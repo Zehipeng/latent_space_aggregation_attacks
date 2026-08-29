@@ -46,12 +46,15 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("All three registered watermarks are required")
     if int(config.get("key_count", 0)) not in ({100} if mode in {"budget_pilot", "budget_confirmation"} else {2, 200}):
         raise ValueError("key_count does not match the run mode")
-    if config.get("N_values") != [1, 5, 25]:
-        raise ValueError("N_values must be [1, 5, 25]")
-    if config.get("lambda_values") != [10000.0, 20000.0, 50000.0]:
-        raise ValueError("lambda_values do not match the protocol")
-    if config.get("beta_values") != [0.5, 1.0, 2.0]:
-        raise ValueError("beta_values do not match the protocol")
+    expected_n = [5] if mode in {"budget_pilot", "budget_confirmation"} else [1, 5, 25]
+    expected_lambda = [10000.0] if mode in {"budget_pilot", "budget_confirmation"} else [10000.0, 20000.0, 50000.0]
+    expected_beta = [1.0] if mode in {"budget_pilot", "budget_confirmation"} else [0.5, 1.0, 2.0]
+    if config.get("N_values") != expected_n:
+        raise ValueError(f"N_values must be {expected_n} for {mode}")
+    if config.get("lambda_values") != expected_lambda:
+        raise ValueError(f"lambda_values must be {expected_lambda} for {mode}")
+    if config.get("beta_values") != expected_beta:
+        raise ValueError(f"beta_values must be {expected_beta} for {mode}")
     if float(config.get("learning_rate", -1)) != 0.02:
         raise ValueError("learning_rate must be 0.02")
     if int(config.get("resume_every", -1)) != 50:
@@ -66,4 +69,7 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError("P0 requires T_max=1500 and detection_every=100")
         if not config.get("online_detection") or not config.get("early_stop"):
             raise ValueError("P0 online stage requires detection and early stopping")
-
+        if config.get("visualization_key_ids") != ["pilot_key_000", "pilot_key_001"]:
+            raise ValueError("P0 retains images only for pilot_key_000 and pilot_key_001")
+        if config.get("retain_non_visualization_images") is not False:
+            raise ValueError("P0 must clean non-visualization images after atomic result recording")
