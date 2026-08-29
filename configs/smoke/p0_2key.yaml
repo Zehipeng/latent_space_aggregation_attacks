@@ -1,4 +1,4 @@
-protocol_version: formal_protocol_v1.8
+protocol_version: formal_protocol_v1.9
 master_seed: 205
 run_mode: budget_pilot
 key_count: 100

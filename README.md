@@ -1,7 +1,7 @@
 # Latent Space Aggregation Attacks
 
-本项目是 `formal_protocol_v1.8` 的正式代码项目。权威协议快照位于
-`docs/protocols/formal_protocol_v1.8.md`；历史项目
+本项目是 `formal_protocol_v1.9` 的正式代码项目。权威协议快照位于
+`docs/protocols/formal_protocol_v1.9.md`；历史项目
 `jain_multiref_latent_experiment/` 只作为算法回归来源，不是正式运行入口。
 
 当前代码阶段只提供协议锁定、可恢复运行基础设施、方法分层、评价统计和运维入口。
@@ -47,6 +47,7 @@ manifest 未冻结之前，正式入口会主动拒绝执行。
 | `operations/prepare_offline_assets.py` | 锁定已准备的本地资产 | 资产inventory | `assets.lock.json` |
 | `operations/build_manifests.py` | 校验预注册清单 | JSON spec | 校验报告 |
 | `operations/build_prompt_manifest.py` | 从锁定的 Gustavosta train parquet 构造互不重叠的 P0/正式 25-prompt banks | parquet、固定SHA-256 | 7500行提示词manifest |
+| `operations/build_coco_manifests.py` | 从val2017构造P0/正式目标、clean-prior及角色重叠审计 | val2017、instances JSON | 五份CSV manifest |
 | `operations/estimate_runtime.py` | P50/P90 ETA与磁盘预算输入检查 | 实测记录 | ETA JSON/报告 |
 | `operations/inspect_run.py` | 只读检查配置 | config | 协议/hash/规模 |
 | `operations/build_cleanup_inventory.py` | 仅生成dry-run清理清单 | run目录 | JSON清单，不删除 |

@@ -1,4 +1,4 @@
-protocol_version: formal_protocol_v1.8
+protocol_version: formal_protocol_v1.9
 master_seed: 205
 run_mode: formal
 key_count: 200
@@ -16,4 +16,3 @@ online_detection: false
 early_stop: false
 removal_target_reference_index: 0
 target_in_reference_aggregate: true
-

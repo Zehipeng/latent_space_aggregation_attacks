@@ -1,5 +1,4 @@
-"""Formal protocol v1.8 implementation."""
+"""Formal protocol v1.9 implementation."""
 
-PROTOCOL_VERSION = "formal_protocol_v1.8"
+PROTOCOL_VERSION = "formal_protocol_v1.9"
 MASTER_SEED = 205
-
