@@ -1,0 +1,12 @@
+[
+  {"name":"stable-diffusion-v1-4","kind":"model","path":"/root/autodl-tmp/cache/huggingface/hub/REPLACE_SD14_SNAPSHOT","revision":"133a221b8aa7292a167afc5127cb63fb5005638b"},
+  {"name":"stable-diffusion-2-base","kind":"model","path":"/root/autodl-tmp/cache/huggingface/hub/REPLACE_SD2_SNAPSHOT","revision":"f5bc1bd97485577aa0b946fa8a9004e2ec147402"},
+  {"name":"tree-ring-watermark","kind":"watermark_code","path":"/root/autodl-tmp/assets/watermark_code/tree-ring-watermark","revision":"3015283d9cf82e90b628f02ad2121bd37408ca9a"},
+  {"name":"RingID","kind":"watermark_code","path":"/root/autodl-tmp/assets/watermark_code/RingID","revision":"45631a59aecd7d63ccdb640aaaf3e616fdb89fb9"},
+  {"name":"Gaussian-Shading","kind":"watermark_code","path":"/root/autodl-tmp/assets/watermark_code/Gaussian-Shading","revision":"09c678fadc7545acf7be12647ddf2a5e66f6a9dc"},
+  {"name":"coco-2017-val","kind":"dataset","path":"/root/autodl-tmp/data/coco/val2017","revision":"coco-2017"},
+  {"name":"coco-2017-train","kind":"dataset","path":"/root/autodl-tmp/data/coco/train2017","revision":"coco-2017"},
+  {"name":"stable-diffusion-prompts","kind":"dataset","path":"/root/autodl-tmp/data/stable-diffusion-prompts","revision":"REPLACE_LOCKED_REVISION"},
+  {"name":"lpips-alex","kind":"evaluation_weight","path":"/root/autodl-tmp/assets/evaluation/lpips-alex.pth","revision":"REPLACE_WEIGHT_VERSION"},
+  {"name":"inception-v3-fid","kind":"evaluation_weight","path":"/root/autodl-tmp/assets/evaluation/inception-v3-fid.pth","revision":"REPLACE_WEIGHT_VERSION"}
+]

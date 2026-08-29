@@ -3,7 +3,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 data/
-assets/
+/assets/
 outputs/
 实验结果/
 *.pt
@@ -12,4 +12,3 @@ outputs/
 *.safetensors
 *.tar.gz
 *.tar.gz.sha256
-

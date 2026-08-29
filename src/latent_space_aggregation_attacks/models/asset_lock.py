@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from latent_space_aggregation_attacks.core.hashing import sha256_file
+from latent_space_aggregation_attacks.core.hashing import sha256_tree
 
 
 def load_and_verify_assets(path: str | Path) -> dict[str, Any]:
@@ -18,8 +18,11 @@ def load_and_verify_assets(path: str | Path) -> dict[str, Any]:
         local_path = Path(asset["path"])
         if not local_path.exists():
             raise FileNotFoundError(local_path)
-        if local_path.is_file() and asset.get("sha256") != sha256_file(local_path):
+        actual_hash, actual_size, actual_files = sha256_tree(local_path)
+        if asset.get("sha256") != actual_hash:
             raise ValueError(f"Asset checksum mismatch: {local_path}")
+        if int(asset.get("size_bytes", -1)) != actual_size or int(asset.get("file_count", -1)) != actual_files:
+            raise ValueError(f"Asset size/count mismatch: {local_path}")
         if not asset.get("revision") and asset.get("kind") in {"model", "watermark_code"}:
             raise ValueError(f"Unpinned asset: {asset['name']}")
     return payload
@@ -36,4 +39,3 @@ def require_offline(flag: bool) -> None:
     if not flag:
         raise ValueError("Formal commands require --offline")
     enforce_offline_environment()
-
