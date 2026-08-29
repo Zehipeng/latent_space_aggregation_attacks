@@ -1,0 +1,19 @@
+protocol_version: formal_protocol_v1.8
+master_seed: 205
+run_mode: smoke
+key_count: 2
+model_settings:
+  - same_model_sd14_target_sd14_vae_proxy
+  - cross_model_sd2_target_sd14_vae_proxy
+watermarks: [tree_ring, ringid, gaussian_shading]
+N_values: [1, 5, 25]
+lambda_values: [10000.0, 20000.0, 50000.0]
+beta_values: [0.5, 1.0, 2.0]
+learning_rate: 0.02
+T_formal: UNFROZEN
+resume_every: 50
+online_detection: false
+early_stop: false
+removal_target_reference_index: 0
+target_in_reference_aggregate: true
+
