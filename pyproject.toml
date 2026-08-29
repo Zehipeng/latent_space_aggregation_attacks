@@ -12,6 +12,7 @@ dependencies = [
   "Pillow>=9.5",
   "PyYAML>=6",
   "scipy>=1.10",
+  "pyarrow==15.0.2",
 ]
 
 [project.optional-dependencies]
@@ -37,4 +38,3 @@ where = ["src"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
-

@@ -6,7 +6,8 @@
   {"name":"Gaussian-Shading","kind":"watermark_code","path":"/root/autodl-tmp/assets/watermark_code/Gaussian-Shading","revision":"09c678fadc7545acf7be12647ddf2a5e66f6a9dc"},
   {"name":"coco-2017-val","kind":"dataset","path":"/root/autodl-tmp/data/coco/val2017","revision":"coco-2017"},
   {"name":"coco-2017-train","kind":"dataset","path":"/root/autodl-tmp/data/coco/train2017","revision":"coco-2017"},
-  {"name":"stable-diffusion-prompts","kind":"dataset","path":"/root/autodl-tmp/data/stable-diffusion-prompts","revision":"REPLACE_LOCKED_REVISION"},
+  {"name":"stable-diffusion-prompts-train","kind":"dataset","path":"/root/autodl-tmp/cache/huggingface/hub/datasets--Gustavosta--Stable-Diffusion-Prompts/snapshots/d816d4a05cb89bde39dd99284c459801e1e7e69a/data/train.parquet","revision":"d816d4a05cb89bde39dd99284c459801e1e7e69a"},
+  {"name":"stable-diffusion-prompts-eval","kind":"dataset","path":"/root/autodl-tmp/cache/huggingface/hub/datasets--Gustavosta--Stable-Diffusion-Prompts/snapshots/d816d4a05cb89bde39dd99284c459801e1e7e69a/data/eval.parquet","revision":"d816d4a05cb89bde39dd99284c459801e1e7e69a"},
   {"name":"lpips-alex","kind":"evaluation_weight","path":"/root/autodl-tmp/assets/evaluation/lpips-alex.pth","revision":"REPLACE_WEIGHT_VERSION"},
   {"name":"inception-v3-fid","kind":"evaluation_weight","path":"/root/autodl-tmp/assets/evaluation/inception-v3-fid.pth","revision":"REPLACE_WEIGHT_VERSION"}
 ]

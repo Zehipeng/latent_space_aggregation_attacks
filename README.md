@@ -46,6 +46,7 @@ manifest 未冻结之前，正式入口会主动拒绝执行。
 | `operations/run_formal_batch.py` | 唯一正式编排入口 | 冻结配置、资产锁 | smoke→200-key→评价→表图 |
 | `operations/prepare_offline_assets.py` | 锁定已准备的本地资产 | 资产inventory | `assets.lock.json` |
 | `operations/build_manifests.py` | 校验预注册清单 | JSON spec | 校验报告 |
+| `operations/build_prompt_manifest.py` | 从锁定的 Gustavosta train parquet 构造互不重叠的 P0/正式 25-prompt banks | parquet、固定SHA-256 | 7500行提示词manifest |
 | `operations/estimate_runtime.py` | P50/P90 ETA与磁盘预算输入检查 | 实测记录 | ETA JSON/报告 |
 | `operations/inspect_run.py` | 只读检查配置 | config | 协议/hash/规模 |
 | `operations/build_cleanup_inventory.py` | 仅生成dry-run清理清单 | run目录 | JSON清单，不删除 |
@@ -102,4 +103,3 @@ python scripts/operations/inspect_run.py --config configs/budget_pilot/p0.yaml
 
 RingID和Gaussian Shading adapter不会猜测上游commit或阈值；资产准备阶段必须写入经用户确认
 的revision、阈值与密钥/message格式。正式模板中的 `T_formal: UNFROZEN` 是安全门禁，不是默认值。
-
