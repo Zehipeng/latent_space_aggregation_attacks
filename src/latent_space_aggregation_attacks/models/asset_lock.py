@@ -5,12 +5,14 @@ import os
 from pathlib import Path
 from typing import Any
 
-from latent_space_aggregation_attacks.core.hashing import sha256_tree
+from latent_space_aggregation_attacks.core.hashing import TREE_HASH_POLICY, sha256_tree
 
 
 def load_and_verify_assets(path: str | Path) -> dict[str, Any]:
     lock_path = Path(path)
     payload = json.loads(lock_path.read_text(encoding="utf-8"))
+    if payload.get("schema_version") != 2 or payload.get("hash_policy") != TREE_HASH_POLICY:
+        raise ValueError("Unsupported or legacy asset-lock hash policy; regenerate the lock")
     assets = payload.get("assets", [])
     if not assets:
         raise ValueError("assets.lock.json has no assets")
