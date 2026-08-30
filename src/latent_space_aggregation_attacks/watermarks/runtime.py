@@ -61,7 +61,11 @@ def invert_image(pipe: Any, image: Any, *, steps: int = 50, size: int = 512) -> 
 
     original_scheduler = pipe.scheduler
     try:
-        pipe.scheduler = DDIMInverseScheduler.from_config(original_scheduler.config)
+        scheduler_config = dict(original_scheduler.config)
+        # PNDM-only metadata is present in the SD2 scheduler config and causes
+        # one warning per inversion when passed to DDIMInverseScheduler.
+        scheduler_config.pop("skip_prk_steps", None)
+        pipe.scheduler = DDIMInverseScheduler.from_config(scheduler_config)
         tensor = image_to_tensor(image, size=size, device=pipe.device, dtype=pipe.vae.dtype)
         image_latents = (
             pipe.vae.encode(tensor).latent_dist.mode()

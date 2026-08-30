@@ -6,6 +6,7 @@ from latent_space_aggregation_attacks.methods.baselines.simple_averaging import 
 from latent_space_aggregation_attacks.methods.proposed.optimizer import optimize_fixed_budget
 def test_formal_targets():
     refs=torch.tensor([1,3,8],dtype=torch.float16).reshape(3,1,1,1); assert fp32_mean(refs).item()==4; assert jain_forgery_target(refs).item()==1
+    assert fp32_mean(refs).shape==(1,1,1,1)
     assert removal_target(torch.tensor([[[5.]]]),refs,torch.ones_like(refs),1.0).item()==2
 def test_simple_averaging():
     direction=estimate_pixel_direction(torch.tensor([.6,.8]).reshape(2,1,1,1),torch.tensor([.2,.4]).reshape(2,1,1,1)); assert direction.item()==pytest.approx(.4)

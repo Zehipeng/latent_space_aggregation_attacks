@@ -15,7 +15,9 @@ def fp32_mean(latents: Any) -> Any:
         raise ValueError("latents must have shape [N, ...]")
     if not torch.isfinite(working).all():
         raise ValueError("latents contain non-finite values")
-    return working.mean(dim=0)
+    # Keep the batch dimension because VAE.encode returns [B,C,H,W].  Dropping
+    # it silently broadcasts the target during MSE and hides shape mistakes.
+    return working.mean(dim=0, keepdim=True)
 
 
 def forgery_target(reference_latents: Any) -> Any:
@@ -28,4 +30,3 @@ def removal_target(target_latent: Any, watermarked_latents: Any, clean_latents: 
     return target_latent.detach().float() - beta * (
         fp32_mean(watermarked_latents) - fp32_mean(clean_latents)
     )
-

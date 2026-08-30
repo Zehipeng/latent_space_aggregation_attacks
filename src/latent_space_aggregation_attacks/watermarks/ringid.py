@@ -99,7 +99,7 @@ class RingIDAdapter:
         generator = torch.Generator(device=self.pipe.device).manual_seed(seed)
         heter_noise = torch.randn(shape, generator=generator, device=self.pipe.device).float()
         heter_spectrum = torch.fft.fftshift(torch.fft.fft2(heter_noise), dim=(-1, -2))
-        pattern[:, heter_channel, region_2d] = heter_spectrum[:, heter_channel, region_2d]
+        pattern[:, heter_channel, region_2d] = heter_spectrum[:, heter_channel, region_2d].to(pattern.dtype)
         # Official fix_gt=1 discards the spatial imaginary component before restoring FFT.
         pattern = torch.fft.fftshift(
             torch.fft.fft2(torch.fft.ifft2(torch.fft.ifftshift(pattern, dim=(-1, -2))).real),
@@ -120,7 +120,7 @@ class RingIDAdapter:
         import torch
         initial = prepare_random_latents(self.pipe, seed).float()
         spectrum = torch.fft.fftshift(torch.fft.fft2(initial), dim=(-1, -2))
-        spectrum[key["mask"]] = key["pattern"][key["mask"]]
+        spectrum[key["mask"]] = key["pattern"][key["mask"]].to(spectrum.dtype)
         latents = torch.fft.ifft2(torch.fft.ifftshift(spectrum, dim=(-1, -2))).real
         return generate_from_latents(self.pipe, prompt, latents, steps=self.generation_steps)
 
