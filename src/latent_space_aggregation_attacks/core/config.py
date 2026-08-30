@@ -73,3 +73,15 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError("P0 retains images only for pilot_key_000 and pilot_key_001")
         if config.get("retain_non_visualization_images") is not False:
             raise ValueError("P0 must clean non-visualization images after atomic result recording")
+        runtime = config.get("watermark_runtime")
+        if not isinstance(runtime, dict) or set(runtime) != WATERMARKS:
+            raise ValueError("P0 must explicitly lock runtime parameters for all watermarks")
+        if float(runtime["tree_ring"].get("p_value_threshold", -1)) != 0.05:
+            raise ValueError("Tree-Ring P0 threshold must be p<=0.05")
+        if float(runtime["ringid"].get("p_value_threshold", -1)) != 0.05:
+            raise ValueError("RingID P0 threshold must be p<=0.05")
+        gaussian = runtime["gaussian_shading"]
+        if float(gaussian.get("fpr", -1)) != 1e-6 or float(gaussian.get("bit_accuracy_threshold", -1)) != 0.6484375:
+            raise ValueError("Gaussian Shading P0 must use the registered FPR=1e-6 threshold")
+        if gaussian.get("cipher") != "chacha20":
+            raise ValueError("Gaussian Shading P0 cipher must be explicitly locked")

@@ -21,3 +21,25 @@ online_detection: true
 early_stop: true
 visualization_key_ids: [pilot_key_000, pilot_key_001]
 retain_non_visualization_images: false
+watermark_runtime:
+  tree_ring:
+    channel: 0
+    radius: 10
+    p_value_threshold: 0.05
+    generation_steps: 50
+    inversion_steps: 50
+  ringid:
+    radius: 14
+    radius_cutoff: 3
+    ring_value_range: 64
+    p_value_threshold: 0.05
+    generation_steps: 50
+    inversion_steps: 50
+  gaussian_shading:
+    cipher: chacha20
+    channel_copy: 1
+    hw_copy: 8
+    fpr: 0.000001
+    bit_accuracy_threshold: 0.6484375
+    generation_steps: 50
+    inversion_steps: 50

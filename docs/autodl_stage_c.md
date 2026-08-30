@@ -1,6 +1,6 @@
-# AutoDL阶段C：离线资产锁定与P0 2-key smoke准备
+# AutoDL阶段C：离线资产锁定与P0执行
 
-目标代码：`main`，提交 `a00448064a28260f8846b91d89a78cbfea4f2e9d`。后续若本文件随修订提交，必须以交付消息中的最新完整SHA为准。
+目标代码：`main`。必须以每次交付消息中的最新完整SHA为准，不使用本文档历史版本里的旧SHA。
 
 ## 1. 同步完全相同的提交
 
@@ -73,7 +73,20 @@ preflight失败时停止；不得删指标、换模型、换revision或联网回
 
 P0 smoke只使用`pilot_key_000/pilot_key_001`、三个水印、跨模型、Proposed伪造与移除，保持每100步检测和早停。它必须验证：两任务完成、在线累计ASR链路、最终离线重算、resume恢复、行数/hash、临时图清理。攻击成功不是smoke通过条件。
 
-当前仓库的硬门禁会在三种水印runtime adapter、真实样本manifest或本地资产缺失时停止。不得把`--preflight-only`成功误写成GPU smoke通过，也不得自动进入100-key P0。
+三种水印runtime与P0编排器已经接通。只运行smoke时增加`--smoke-only`；退出码为0且
+`smoke_report.json`为`PASSED`才表示真实GPU smoke通过。preflight成功仍不等于smoke通过。
+
+```bash
+python scripts/main_methods/run_budget_selection_pilot.py \
+  --config configs/budget_pilot/p0.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --offline \
+  --smoke-only \
+  --run-id p0_v19_main
+```
+
+确认smoke产物后，移除`--smoke-only`并保持相同`run-id`；编排器先复用匹配smoke，再自动进入
+100-key P0。中断时原样重跑即可按50步状态续跑。
 
 ## 6. 失败时保留并返回
 

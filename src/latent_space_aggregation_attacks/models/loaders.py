@@ -25,5 +25,6 @@ def load_target_pipeline(model: dict[str, Any], *, offline: bool = True) -> Any:
     if not path.exists(): raise FileNotFoundError(path)
     pipe = StableDiffusionPipeline.from_pretrained(path, torch_dtype=dtype, local_files_only=True, safety_checker=None, requires_safety_checker=False)
     pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
-    return pipe.to(model["device"])
-
+    pipe = pipe.to(model["device"])
+    pipe.set_progress_bar_config(disable=True)
+    return pipe

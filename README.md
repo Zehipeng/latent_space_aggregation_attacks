@@ -4,9 +4,9 @@
 `docs/protocols/formal_protocol_v1.9.md`；历史项目
 `jain_multiref_latent_experiment/` 只作为算法回归来源，不是正式运行入口。
 
-当前代码阶段只提供协议锁定、可恢复运行基础设施、方法分层、评价统计和运维入口。
-在 `T_formal` 未经 P0 与用户确认冻结、三种水印 revision/阈值未写入资产锁、正式
-manifest 未冻结之前，正式入口会主动拒绝执行。
+当前代码已实现P0预算选择的真实GPU执行链：固定revision的三种水印runtime、2-key smoke
+门禁、通过后自动进入100-key P0、每100步在线检测早停、每50步原子resume、累计ASR表和
+曲线。`T_formal`仍须在P0与固定预算确认后由用户批准冻结；此前正式入口继续拒绝执行。
 
 ## 威胁模型
 
@@ -96,11 +96,38 @@ python -m pytest -q
 python scripts/operations/inspect_run.py --config configs/budget_pilot/p0.yaml
 ```
 
+## P0运行
+
+先确认本机`assets.lock.json`已通过离线预检。只跑真实2-key GPU smoke：
+
+```bash
+python scripts/main_methods/run_budget_selection_pilot.py \
+  --config configs/budget_pilot/p0.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --offline \
+  --smoke-only \
+  --run-id p0_v19_main
+```
+
+正式启动P0时使用同一入口但移除`--smoke-only`。该命令先复用或完成匹配的2-key smoke，
+只有smoke报告通过才自动进入100-key、600单元P0：
+
+```bash
+python scripts/main_methods/run_budget_selection_pilot.py \
+  --config configs/budget_pilot/p0.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --offline \
+  --run-id p0_v19_main
+```
+
+中断后原样重跑同一命令和`run-id`即可续跑；完整单元直接跳过，活动单元从最近50步状态恢复。
+
 后续GPU验收必须依次完成：离线资产preflight、P0 2-key smoke、P0 100-key预算选择、用户提出
 `T_candidate`、100-key无检测固定预算确认、协议升级并冻结 `T_formal`、正式2-key smoke。
 在此前不得启动正式200-key实验。
 
 ## 当前明确门禁
 
-RingID和Gaussian Shading adapter不会猜测上游commit或阈值；资产准备阶段必须写入经用户确认
-的revision、阈值与密钥/message格式。正式模板中的 `T_formal: UNFROZEN` 是安全门禁，不是默认值。
+P0配置显式锁定Tree-Ring/RingID的`p<=0.05`、Gaussian Shading官方ChaCha20变体及
+FPR=`1e-6`对应的bit-accuracy阈值，并在启动时核对三种官方代码revision。正式模板中的
+`T_formal: UNFROZEN`仍是安全门禁，不是默认值。
