@@ -1,6 +1,6 @@
 [
-  {"name":"stable-diffusion-v1-4","kind":"model","path":"/root/autodl-tmp/cache/huggingface/hub/REPLACE_SD14_SNAPSHOT","revision":"133a221b8aa7292a167afc5127cb63fb5005638b"},
-  {"name":"stable-diffusion-2-base","kind":"model","path":"/root/autodl-tmp/cache/huggingface/hub/REPLACE_SD2_SNAPSHOT","revision":"f5bc1bd97485577aa0b946fa8a9004e2ec147402"},
+  {"name":"stable-diffusion-v1-4","kind":"model","path":"/root/autodl-tmp/cache/huggingface/hub/models--CompVis--stable-diffusion-v1-4/snapshots/133a221b8aa7292a167afc5127cb63fb5005638b","revision":"133a221b8aa7292a167afc5127cb63fb5005638b"},
+  {"name":"stable-diffusion-2-base","kind":"model","path":"/root/autodl-tmp/cache/huggingface/hub/models--sd2-community--stable-diffusion-2-base/snapshots/f5bc1bd97485577aa0b946fa8a9004e2ec147402","revision":"f5bc1bd97485577aa0b946fa8a9004e2ec147402"},
   {"name":"tree-ring-watermark","kind":"watermark_code","path":"/root/autodl-tmp/assets/watermark_code/tree-ring-watermark","revision":"3015283d9cf82e90b628f02ad2121bd37408ca9a"},
   {"name":"RingID","kind":"watermark_code","path":"/root/autodl-tmp/assets/watermark_code/RingID","revision":"45631a59aecd7d63ccdb640aaaf3e616fdb89fb9"},
   {"name":"Gaussian-Shading","kind":"watermark_code","path":"/root/autodl-tmp/assets/watermark_code/Gaussian-Shading","revision":"09c678fadc7545acf7be12647ddf2a5e66f6a9dc"},
@@ -8,6 +8,10 @@
   {"name":"coco-2017-annotations","kind":"dataset","path":"/root/autodl-tmp/data/coco2017/annotations/instances_val2017.json","revision":"a4cd8b69bd45a35e9a0a9c8692f3a7f4f23321fe"},
   {"name":"stable-diffusion-prompts-train","kind":"dataset","path":"/root/autodl-tmp/cache/huggingface/hub/datasets--Gustavosta--Stable-Diffusion-Prompts/snapshots/d816d4a05cb89bde39dd99284c459801e1e7e69a/data/train.parquet","revision":"d816d4a05cb89bde39dd99284c459801e1e7e69a"},
   {"name":"stable-diffusion-prompts-eval","kind":"dataset","path":"/root/autodl-tmp/cache/huggingface/hub/datasets--Gustavosta--Stable-Diffusion-Prompts/snapshots/d816d4a05cb89bde39dd99284c459801e1e7e69a/data/eval.parquet","revision":"d816d4a05cb89bde39dd99284c459801e1e7e69a"},
-  {"name":"lpips-alex","kind":"evaluation_weight","path":"/root/autodl-tmp/assets/evaluation/lpips-alex.pth","revision":"REPLACE_WEIGHT_VERSION"},
-  {"name":"inception-v3-fid","kind":"evaluation_weight","path":"/root/autodl-tmp/assets/evaluation/inception-v3-fid.pth","revision":"REPLACE_WEIGHT_VERSION"}
+  {"name":"formal-protocol-v1.9-prompt-manifest","kind":"manifest","path":"/root/autodl-tmp/assets/manifests/formal_protocol_v1.9_prompt_manifest.csv","revision":"formal_protocol_v1.9"},
+  {"name":"formal-protocol-v1.9-coco-manifests","kind":"manifest","path":"/root/autodl-tmp/assets/manifests/formal_protocol_v1.9_coco","revision":"formal_protocol_v1.9"},
+  {"name":"lpips-alex-v0.1","kind":"evaluation_weight","path":"/root/miniconda3/lib/python3.10/site-packages/lpips/weights/v0.1/alex.pth","revision":"lpips-0.1.4-v0.1"},
+  {"name":"alexnet-imagenet1k","kind":"evaluation_weight","path":"/root/.cache/torch/hub/checkpoints/alexnet-owt-7be5be79.pth","revision":"torchvision-0.16.2-IMAGENET1K_V1"},
+  {"name":"inception-v3-imagenet1k","kind":"evaluation_weight","path":"/root/.cache/torch/hub/checkpoints/inception_v3_google-0cc3c7bd.pth","revision":"torchvision-0.16.2-IMAGENET1K_V1"},
+  {"name":"pyarrow-wheel","kind":"python_wheel","path":"/root/autodl-tmp/assets/python_wheels/pyarrow-15.0.2/pyarrow-15.0.2-cp310-cp310-manylinux_2_28_x86_64.whl","revision":"15.0.2"}
 ]
