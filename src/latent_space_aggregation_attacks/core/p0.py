@@ -420,7 +420,7 @@ def _run_stage(
     hashes = {
         "pilot_first_success.csv": sha256_file(result_path),
         "pilot_asr_by_step.csv": sha256_file(run_dir / "pilot_asr_by_step.csv"),
-        **{path.name: sha256_file(path) for path in figures},
+        **{path.relative_to(run_dir).as_posix(): sha256_file(path) for path in figures},
     }
     atomic_write_json(run_dir / ("smoke_report.json" if stage == "smoke" else "p0_run_report.json"), {
         "status": "PASSED" if stage == "smoke" else "COMPLETE", "stage": stage,
