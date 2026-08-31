@@ -25,7 +25,13 @@ from .hashing import sha256_file, stable_hash
 from .ledger import LedgerEvent, append_event
 from .manifests import write_manifest
 from .resume import ResumeState, load_resume_state, save_resume_state
-from .seeds import capture_rng_state, derive_seed, restore_rng_state, seed_runtime
+from .seeds import (
+    capture_rng_state,
+    configure_torch_determinism,
+    derive_seed,
+    restore_rng_state,
+    seed_runtime,
+)
 
 
 P0_WATERMARK_REVISIONS = {
@@ -48,6 +54,7 @@ def _require_gpu_runtime() -> None:
         raise RuntimeError("P0 GPU dependencies are incomplete; install requirements.lock before running") from exc
     if not torch.cuda.is_available():
         raise RuntimeError("P0 requires a CUDA GPU; no CUDA device is available")
+    configure_torch_determinism(torch)
 
 
 def _git_sha(project_root: Path) -> str:

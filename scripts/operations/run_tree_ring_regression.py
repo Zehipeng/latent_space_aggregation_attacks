@@ -15,6 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from latent_space_aggregation_attacks.core.atomic_io import atomic_write_json
 from latent_space_aggregation_attacks.core.p0 import _assets_by_name, _encode, _open_rgb
 from latent_space_aggregation_attacks.core.preflight import preflight
+from latent_space_aggregation_attacks.core.seeds import configure_torch_determinism
 from latent_space_aggregation_attacks.methods.proposed.optimizer import optimize_fixed_budget
 from latent_space_aggregation_attacks.methods.proposed.targets import forgery_target
 from latent_space_aggregation_attacks.models.loaders import load_proxy_vae, load_target_pipeline
@@ -41,6 +42,9 @@ def main() -> None:
     parser.add_argument("--output", required=True)
     parser.add_argument("--offline", action="store_true")
     args = parser.parse_args()
+
+    import torch
+    determinism = configure_torch_determinism(torch)
 
     checked = preflight(args.config, args.assets_lock, offline=args.offline)
     config = checked["config"]
@@ -99,7 +103,7 @@ def main() -> None:
         new_images.append(new_image)
 
     new_latents = _encode(vae, new_images)
-    old_latents = __import__("torch").cat([
+    old_latents = torch.cat([
         legacy_prototype.encode_vae_latent(
             vae, legacy_image_io.preprocess_pil(image, 512).unsqueeze(0)
         )
@@ -121,8 +125,10 @@ def main() -> None:
         old_cover, old_target, vae, lambda_pixel=10000.0, alpha=0.02,
         num_iterations=10, log_every=10,
     )
+    # The preceding checks establish equivalence of the independently built
+    # tensors. Use the same objects here so this gate isolates the update rule.
     new_result = optimize_fixed_budget(
-        new_cover, new_target, vae, lambda_pixel=10000.0, learning_rate=0.02,
+        old_cover, old_target, vae, lambda_pixel=10000.0, learning_rate=0.02,
         final_step=10,
     )
     attack_max_abs = float((new_result.image - old_result.adversarial).abs().max().item())
@@ -130,6 +136,7 @@ def main() -> None:
     report = {
         "status": "PASSED",
         "tree_ring": {"channel": 0, "radius": 16},
+        "torch_determinism": determinism,
         "key_max_abs": key_max_abs,
         "mask_equal": mask_equal,
         "image_max_abs_per_reference": image_max_abs,

@@ -31,6 +31,38 @@ def test_optimizer_resume_uses_saved_current_image():
     assert result.image.item()==pytest.approx(.5)
 
 
+def test_optimizer_matches_reference_gradient_descent_update():
+    class Distribution:
+        def __init__(self, value): self.value = value
+        def mode(self): return self.value
+    class Encoded:
+        def __init__(self, value): self.latent_dist = Distribution(value)
+    class VAE(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.anchor = torch.nn.Parameter(torch.zeros(()))
+            self.config = type("Config", (), {"scaling_factor": 1.0})()
+        def encode(self, value): return Encoded(value.square() + self.anchor * 0)
+
+    vae = VAE()
+    original = torch.tensor([[[[-0.8, -0.2], [0.3, 0.9]]]])
+    target = torch.tensor([[[[0.1, 0.4], [0.2, 0.7]]]])
+    expected = original.clone()
+    for _ in range(3):
+        expected.requires_grad_(True)
+        encoded = vae.encode(expected).latent_dist.mode()
+        loss = torch.nn.functional.mse_loss(encoded, target)
+        loss = loss + 2.0 * torch.nn.functional.mse_loss(expected, original)
+        gradient = torch.autograd.grad(loss, expected, only_inputs=True)[0]
+        expected = (expected - 0.02 * gradient).clamp(-1.0, 1.0).detach()
+
+    actual = optimize_fixed_budget(
+        original, target, vae, lambda_pixel=2.0,
+        learning_rate=0.02, final_step=3,
+    )
+    torch.testing.assert_close(actual.image, expected, rtol=0, atol=0)
+
+
 def test_pil_preprocessing_matches_short_side_resize_and_center_crop():
     from PIL import Image
     import numpy as np

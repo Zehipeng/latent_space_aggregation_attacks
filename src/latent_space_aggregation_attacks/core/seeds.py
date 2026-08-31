@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import random
 from typing import Any
 
@@ -11,6 +12,10 @@ from latent_space_aggregation_attacks import MASTER_SEED, SEED_NAMESPACE_VERSION
 NAMESPACES = frozenset(
     {"generation", "watermark_key", "data_order", "transform", "budget_pilot", "worker"}
 )
+
+# This must be present before CUDA creates a cuBLAS workspace. ``setdefault``
+# preserves any explicitly configured environment value.
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 
 def derive_seed(namespace: str, *identifiers: object) -> int:
@@ -31,6 +36,23 @@ def seed_runtime(seed: int, torch_module: Any | None = None) -> dict[str, Any]:
             torch_module.cuda.manual_seed_all(seed)
         state["generator"] = torch_module.Generator().manual_seed(seed)
     return state
+
+
+def configure_torch_determinism(torch_module: Any) -> dict[str, Any]:
+    """Lock the CUDA math backends used by iterative image optimization."""
+    torch_module.use_deterministic_algorithms(True)
+    torch_module.backends.cudnn.benchmark = False
+    torch_module.backends.cudnn.deterministic = True
+    torch_module.backends.cudnn.allow_tf32 = False
+    torch_module.backends.cuda.matmul.allow_tf32 = False
+    return {
+        "deterministic_algorithms": torch_module.are_deterministic_algorithms_enabled(),
+        "cublas_workspace_config": os.environ["CUBLAS_WORKSPACE_CONFIG"],
+        "cudnn_benchmark": bool(torch_module.backends.cudnn.benchmark),
+        "cudnn_deterministic": bool(torch_module.backends.cudnn.deterministic),
+        "cudnn_allow_tf32": bool(torch_module.backends.cudnn.allow_tf32),
+        "cuda_matmul_allow_tf32": bool(torch_module.backends.cuda.matmul.allow_tf32),
+    }
 
 
 def capture_rng_state(torch_module: Any | None = None) -> dict[str, Any]:
