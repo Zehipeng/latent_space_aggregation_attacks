@@ -16,8 +16,16 @@ def image_to_tensor(image: Any, *, size: int, device: Any, dtype: Any) -> Any:
         return value.to(device=device, dtype=dtype)
     if not isinstance(image, Image.Image):
         raise TypeError(f"Unsupported image type: {type(image)!r}")
-    resized = image.convert("RGB").resize((size, size), Image.Resampling.BICUBIC)
-    array = np.asarray(resized, dtype=np.float32) / 127.5 - 1.0
+    rgb = image.convert("RGB")
+    scale = size / min(rgb.size)
+    resized = rgb.resize(
+        (round(rgb.width * scale), round(rgb.height * scale)),
+        Image.Resampling.BICUBIC,
+    )
+    left = (resized.width - size) // 2
+    top = (resized.height - size) // 2
+    cropped = resized.crop((left, top, left + size, top + size))
+    array = np.asarray(cropped, dtype=np.float32) / 127.5 - 1.0
     return torch.from_numpy(array).permute(2, 0, 1).unsqueeze(0).to(device=device, dtype=dtype)
 
 

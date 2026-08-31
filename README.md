@@ -1,7 +1,7 @@
 # Latent Space Aggregation Attacks
 
-本项目是 `formal_protocol_v1.9` 的正式代码项目。权威协议快照位于
-`docs/protocols/formal_protocol_v1.9.md`；历史项目
+本项目是 `formal_protocol_v1.10` 的正式代码项目。权威协议快照位于
+`docs/protocols/formal_protocol_v1.10.md`；历史项目
 `jain_multiref_latent_experiment/` 只作为算法回归来源，不是正式运行入口。
 
 当前代码已实现P0预算选择的真实GPU执行链：固定revision的三种水印runtime、2-key smoke
@@ -46,8 +46,9 @@
 | `operations/run_formal_batch.py` | 唯一正式编排入口 | 冻结配置、资产锁 | smoke→200-key→评价→表图 |
 | `operations/prepare_offline_assets.py` | 锁定已准备的本地资产 | 资产inventory | `assets.lock.json` |
 | `operations/build_manifests.py` | 校验预注册清单 | JSON spec | 校验报告 |
-| `operations/build_prompt_manifest.py` | 从锁定的 Gustavosta train parquet 构造互不重叠的 P0/正式 25-prompt banks | parquet、固定SHA-256 | 7500行提示词manifest |
+| `operations/build_prompt_manifest.py` | 从锁定的 Gustavosta train parquet 构造互不重叠的 P0/正式 64-candidate banks | parquet、固定SHA-256 | 19200行提示词manifest |
 | `operations/build_coco_manifests.py` | 从val2017构造P0/正式目标、clean-prior及角色重叠审计 | val2017、instances JSON | 五份CSV manifest |
+| `operations/run_tree_ring_regression.py` | 在GPU上用相同输入比较新旧Tree-Ring、预处理、目标与10步优化 | 新资产锁、只读旧项目 | JSON等价性报告 |
 | `operations/estimate_runtime.py` | P50/P90 ETA与磁盘预算输入检查 | 实测记录 | ETA JSON/报告 |
 | `operations/inspect_run.py` | 只读检查配置 | config | 协议/hash/规模 |
 | `operations/build_cleanup_inventory.py` | 仅生成dry-run清理清单 | run目录 | JSON清单，不删除 |
@@ -98,7 +99,8 @@ python scripts/operations/inspect_run.py --config configs/budget_pilot/p0.yaml
 
 ## P0运行
 
-先确认本机`assets.lock.json`已通过离线预检。只跑真实2-key GPU smoke：
+先确认v1.10的64候选提示词manifest、COCO manifest与`assets.lock.json`已通过离线预检，
+再运行Tree-Ring新旧GPU回归。回归报告必须为`PASSED`，之后才跑真实2-key GPU smoke：
 
 ```bash
 python scripts/main_methods/run_budget_selection_pilot.py \
@@ -106,7 +108,7 @@ python scripts/main_methods/run_budget_selection_pilot.py \
   --assets-lock local_assets/assets.lock.json \
   --offline \
   --smoke-only \
-  --run-id p0_v19_main
+  --run-id p0_v110_main
 ```
 
 正式启动P0时使用同一入口但移除`--smoke-only`。该命令先复用或完成匹配的2-key smoke，
@@ -117,7 +119,7 @@ python scripts/main_methods/run_budget_selection_pilot.py \
   --config configs/budget_pilot/p0.yaml \
   --assets-lock local_assets/assets.lock.json \
   --offline \
-  --run-id p0_v19_main
+  --run-id p0_v110_main
 ```
 
 中断后原样重跑同一命令和`run-id`即可续跑；完整单元直接跳过，活动单元从最近50步状态恢复。
@@ -128,6 +130,8 @@ python scripts/main_methods/run_budget_selection_pilot.py \
 
 ## 当前明确门禁
 
-P0配置显式锁定Tree-Ring/RingID的`p<=0.05`、Gaussian Shading官方ChaCha20变体及
-FPR=`1e-6`对应的bit-accuracy阈值，并在启动时核对三种官方代码revision。正式模板中的
+P0配置显式锁定Tree-Ring为`channel=0,radius=16,p<=0.05`、RingID的`p<=0.05`、
+Gaussian Shading官方ChaCha20变体及FPR=`1e-6`对应的bit-accuracy阈值。每个key和水印
+从64个预注册有序候选中选择最先通过正式阈值的5张参考，并持久记录全部已测试候选及
+选中图像哈希；不足5张时批次失败。启动时同时核对三种官方代码revision。正式模板中的
 `T_formal: UNFROZEN`仍是安全门禁，不是默认值。

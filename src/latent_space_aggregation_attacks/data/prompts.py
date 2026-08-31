@@ -13,22 +13,22 @@ PROMPT_COLUMNS = ("cohort", "key_id", "reference_index", "source_split", "source
 
 def prompt_row_order(row_count: int) -> list[int]:
     """Return the protocol-seeded, deterministic order of source prompt rows."""
-    if row_count < 7_500:
-        raise ValueError("Prompt train split must contain at least 7,500 rows")
+    if row_count < 19_200:
+        raise ValueError("Prompt train split must contain at least 19,200 rows")
     values = list(range(row_count))
     random.Random(derive_seed("data_order", "stable_diffusion_prompts", "train")).shuffle(values)
     return values
 
 
 def build_prompt_rows(prompts: Iterable[str]) -> list[dict[str, str | int]]:
-    """Assign disjoint 25-prompt banks to 100 pilot and 200 formal keys."""
+    """Assign disjoint 64-candidate banks to 100 pilot and 200 formal keys."""
     values = list(prompts)
     order = prompt_row_order(len(values))
     rows: list[dict[str, str | int]] = []
     offset = 0
     for cohort, count, prefix in (("pilot", 100, "pilot_key"), ("formal", 200, "key")):
         for key_index in range(count):
-            for reference_index in range(25):
+            for reference_index in range(64):
                 source_row = order[offset]
                 offset += 1
                 prompt = str(values[source_row])

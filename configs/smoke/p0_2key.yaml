@@ -1,4 +1,4 @@
-protocol_version: formal_protocol_v1.9
+protocol_version: formal_protocol_v1.10
 master_seed: 205
 run_mode: budget_pilot
 key_count: 100
@@ -21,10 +21,14 @@ online_detection: true
 early_stop: true
 visualization_key_ids: [pilot_key_000, pilot_key_001]
 retain_non_visualization_images: false
+reference_validity:
+  selection_policy: first_accepted_from_preregistered_candidates
+  candidate_limit: 64
+  require_all_selected_accepted: true
 watermark_runtime:
   tree_ring:
     channel: 0
-    radius: 10
+    radius: 16
     p_value_threshold: 0.05
     generation_steps: 50
     inversion_steps: 50

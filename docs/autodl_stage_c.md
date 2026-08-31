@@ -51,6 +51,22 @@ cp configs/assets/autodl_inventory.template.json local_assets/autodl_inventory.j
 ## 4. 生成并验证资产锁
 
 ```bash
+mkdir -p /root/autodl-tmp/assets/manifests/formal_protocol_v1.10_coco
+
+PROMPT_SHA=$(python -c 'import json; p=json.load(open("local_assets/assets.lock.json")); print(next(x["sha256"] for x in p["assets"] if x["name"]=="stable-diffusion-prompts-train"))')
+
+python scripts/operations/build_prompt_manifest.py \
+  --train-parquet /root/autodl-tmp/cache/huggingface/hub/datasets--Gustavosta--Stable-Diffusion-Prompts/snapshots/d816d4a05cb89bde39dd99284c459801e1e7e69a/data/train.parquet \
+  --output /root/autodl-tmp/assets/manifests/formal_protocol_v1.10_prompt_manifest.csv \
+  --expected-sha256 "$PROMPT_SHA"
+
+python scripts/operations/build_coco_manifests.py \
+  --val-dir /root/autodl-tmp/data/coco2017/val2017 \
+  --instances /root/autodl-tmp/data/coco2017/annotations/instances_val2017.json \
+  --output-dir /root/autodl-tmp/assets/manifests/formal_protocol_v1.10_coco
+
+cp configs/assets/autodl_inventory.template.json local_assets/autodl_inventory.json
+
 python scripts/operations/prepare_offline_assets.py \
   --inventory local_assets/autodl_inventory.json \
   --output local_assets/assets.lock.json
@@ -65,13 +81,20 @@ python scripts/main_methods/run_budget_selection_pilot.py \
   --assets-lock local_assets/assets.lock.json \
   --offline \
   --preflight-only
+
+python scripts/operations/run_tree_ring_regression.py \
+  --config configs/budget_pilot/p0.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --legacy-project /root/autodl-tmp/project/jain_multiref_latent_experiment \
+  --output /root/autodl-tmp/实验结果/regression/tree_ring_v110.json \
+  --offline
 ```
 
 preflight失败时停止；不得删指标、换模型、换revision或联网回退。
 
 ## 5. P0 2-key smoke门槛
 
-P0 smoke只使用`pilot_key_000/pilot_key_001`、三个水印、跨模型、Proposed伪造与移除，保持每100步检测和早停。它必须验证：两任务完成、在线累计ASR链路、最终离线重算、resume恢复、行数/hash、临时图清理。攻击成功不是smoke通过条件。
+P0 smoke只使用`pilot_key_000/pilot_key_001`、三个水印、跨模型、Proposed伪造与移除，保持每100步检测和早停。Tree-Ring固定`channel=0,radius=16`；每个key和水印从64个预注册候选中按顺序选择最先通过正式阈值的5张参考，任一选中参考无效或候选不足即失败。在线检测必须使用与最终PNG相同的RGB 8-bit表示。它还必须验证：两任务完成、在线累计ASR链路、resume恢复、行数/hash和参考控制manifest。攻击成功不是smoke通过条件。
 
 三种水印runtime与P0编排器已经接通。只运行smoke时增加`--smoke-only`；退出码为0且
 `smoke_report.json`为`PASSED`才表示真实GPU smoke通过。preflight成功仍不等于smoke通过。
@@ -82,7 +105,7 @@ python scripts/main_methods/run_budget_selection_pilot.py \
   --assets-lock local_assets/assets.lock.json \
   --offline \
   --smoke-only \
-  --run-id p0_v19_main
+  --run-id p0_v110_main
 ```
 
 确认smoke产物后，移除`--smoke-only`并保持相同`run-id`；编排器先复用匹配smoke，再自动进入

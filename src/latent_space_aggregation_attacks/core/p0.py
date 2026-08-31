@@ -104,7 +104,7 @@ def _ensure_layout(path: Path) -> Path:
 
 
 def _load_inputs(assets: dict[str, dict[str, Any]]) -> tuple[dict[str, list[dict[str, str]]], dict[str, dict[str, str]], dict[str, list[dict[str, str]]]]:
-    prompt_rows = _read_csv(Path(assets["formal-protocol-v1.9-prompt-manifest"]["path"]))
+    prompt_rows = _read_csv(Path(assets["formal-protocol-v1.10-prompt-manifest"]["path"]))
     prompt_by_key: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in prompt_rows:
         if row["cohort"] == "pilot":
@@ -112,7 +112,7 @@ def _load_inputs(assets: dict[str, dict[str, Any]]) -> tuple[dict[str, list[dict
     for rows in prompt_by_key.values():
         rows.sort(key=lambda row: int(row["reference_index"]))
 
-    coco_root = Path(assets["formal-protocol-v1.9-coco-manifests"]["path"])
+    coco_root = Path(assets["formal-protocol-v1.10-coco-manifests"]["path"])
     target_by_key = {row["key_id"]: row for row in _read_csv(coco_root / "p0_forgery_target_manifest.csv")}
     clean_by_key: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in _read_csv(coco_root / "p0_clean_prior_manifest.csv"):
@@ -121,8 +121,8 @@ def _load_inputs(assets: dict[str, dict[str, Any]]) -> tuple[dict[str, list[dict
         rows.sort(key=lambda row: int(row["clean_index"]))
     if len(prompt_by_key) != 100 or len(target_by_key) != 100 or len(clean_by_key) != 100:
         raise ValueError("P0 manifests must contain exactly 100 pilot keys")
-    if any(len(rows) < 5 for rows in prompt_by_key.values()) or any(len(rows) != 5 for rows in clean_by_key.values()):
-        raise ValueError("P0 requires 25 prompts and exactly five clean priors per pilot key")
+    if any(len(rows) < 64 for rows in prompt_by_key.values()) or any(len(rows) != 5 for rows in clean_by_key.values()):
+        raise ValueError("P0 requires 64 preregistered reference candidates and exactly five clean priors per pilot key")
     return prompt_by_key, target_by_key, clean_by_key
 
 
@@ -142,6 +142,120 @@ def _open_rgb(path: str) -> Any:
     from PIL import Image
     with Image.open(path) as image:
         return image.convert("RGB").copy()
+
+
+def _canonical_detection_image(image: Any) -> Any:
+    """Return the same RGB uint8 representation that is persisted as PNG."""
+    try:
+        import torch
+        if torch.is_tensor(image):
+            return tensor_to_pil(image)
+    except ImportError:
+        pass
+    return image.convert("RGB")
+
+
+def _png_payload(image: Any) -> tuple[bytes, str]:
+    canonical = _canonical_detection_image(image)
+    buffer = io.BytesIO()
+    canonical.save(buffer, format="PNG")
+    payload = buffer.getvalue()
+    return payload, hashlib.sha256(payload).hexdigest()
+
+
+REFERENCE_CONTROL_FIELDS = [
+    "protocol_version", "run_id", "stage", "watermark", "key_id",
+    "candidate_index", "selected_reference_index", "prompt_sha256",
+    "generation_seed", "score", "score_name", "accepted", "selected",
+    "image_sha256", "image_path",
+]
+
+
+def _select_valid_references(
+    *, adapter: Any, key: Any, watermark: str, key_id: str,
+    candidate_rows: list[dict[str, str]], reference_count: int, candidate_limit: int,
+    run_dir: Path, run_id: str, stage: str, control_path: Path,
+    control_rows: list[dict[str, Any]],
+) -> tuple[list[Any], list[dict[str, str]], list[dict[str, Any]]]:
+    """Select the first accepted images from a preregistered candidate stream.
+
+    Candidate order, prompts, generation seeds, scores, rejected candidates and
+    selected artifacts are all recorded.  The sole selection rule is the first
+    ``reference_count`` accepted candidates in the preregistered order.
+    """
+    from PIL import Image
+
+    group_rows = [
+        row for row in control_rows
+        if row["watermark"] == watermark and row["key_id"] == key_id
+    ]
+    selected_existing = sorted(
+        [row for row in group_rows if str(row["selected"]).lower() == "true"],
+        key=lambda row: int(row["selected_reference_index"]),
+    )
+    if len(selected_existing) == reference_count:
+        images: list[Any] = []
+        rows_by_prompt = {row["prompt_sha256"]: row for row in candidate_rows[:candidate_limit]}
+        selected_inputs: list[dict[str, str]] = []
+        for record in selected_existing:
+            source = rows_by_prompt.get(record["prompt_sha256"])
+            if source is None or str(record["accepted"]).lower() != "true":
+                raise RuntimeError(f"Invalid persisted reference selection: {watermark}/{key_id}")
+            path = run_dir / record["image_path"]
+            if not path.is_file() or sha256_file(path) != record["image_sha256"]:
+                raise RuntimeError(f"Persisted reference image failed integrity check: {path}")
+            with Image.open(path) as image:
+                images.append(image.convert("RGB").copy())
+            selected_inputs.append(source)
+        return images, selected_inputs, control_rows
+
+    # A partial selection is deterministically rebuilt for this key.  Rows for
+    # other keys remain intact and selected reference artifacts are overwritten
+    # atomically with identical content.
+    control_rows = [
+        row for row in control_rows
+        if not (row["watermark"] == watermark and row["key_id"] == key_id)
+    ]
+    selected_images: list[Any] = []
+    selected_inputs: list[dict[str, str]] = []
+    for candidate in candidate_rows[:candidate_limit]:
+        candidate_index = int(candidate["reference_index"])
+        generation_seed = derive_seed(
+            "budget_pilot", "generation", watermark, key_id, candidate_index,
+        )
+        image = _canonical_detection_image(adapter.generate(candidate["prompt"], key, generation_seed))
+        detection = adapter.detect(image, key)
+        payload, image_hash = _png_payload(image)
+        accepted = bool(detection.accepted)
+        selected = accepted and len(selected_images) < reference_count
+        selected_index: int | str = len(selected_images) if selected else ""
+        relative_path = ""
+        if selected:
+            relative = Path("reference_images") / watermark / key_id / f"ref_{int(selected_index):02d}.png"
+            atomic_write_bytes(run_dir / relative, payload)
+            relative_path = relative.as_posix()
+            selected_images.append(image)
+            selected_inputs.append(candidate)
+        control_rows.append({
+            "protocol_version": PROTOCOL_VERSION, "run_id": run_id, "stage": stage,
+            "watermark": watermark, "key_id": key_id,
+            "candidate_index": candidate_index,
+            "selected_reference_index": selected_index,
+            "prompt_sha256": candidate["prompt_sha256"],
+            "generation_seed": generation_seed,
+            "score": detection.score, "score_name": detection.score_name,
+            "accepted": accepted, "selected": selected,
+            "image_sha256": image_hash, "image_path": relative_path,
+        })
+        _atomic_csv(control_path, control_rows, REFERENCE_CONTROL_FIELDS)
+        if len(selected_images) == reference_count:
+            break
+    if len(selected_images) != reference_count:
+        raise RuntimeError(
+            f"Reference validity gate failed for {watermark}/{key_id}: "
+            f"{len(selected_images)}/{reference_count} accepted among {candidate_limit} preregistered candidates"
+        )
+    return selected_images, selected_inputs, control_rows
 
 
 def _adapter_config(config: dict[str, Any], watermark: str, pipe: Any, assets: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -237,7 +351,8 @@ def _run_stage(
     )
     git_sha = _git_sha(project_root)
     config_hash = config["resolved_config_hash"]
-    selected_prompts = [row for key_id in key_ids for row in prompt_by_key[key_id][: int(config["main_N"])]]
+    candidate_limit = int(config["reference_validity"]["candidate_limit"])
+    selected_prompts = [row for key_id in key_ids for row in prompt_by_key[key_id][:candidate_limit]]
     selected_targets = [target_by_key[key_id] for key_id in key_ids]
     selected_clean = [row for key_id in key_ids for row in clean_by_key[key_id]]
     sample_manifest_hash = stable_hash({
@@ -250,13 +365,13 @@ def _run_stage(
         "key_ids": key_ids,
     })
     source_config = Path(config["_source_path"])
-    protocol_source = project_root / "docs/protocols/formal_protocol_v1.9.md"
+    protocol_source = project_root / "docs/protocols/formal_protocol_v1.10.md"
     shutil.copy2(source_config, run_dir / "protocol_snapshot/source_config.yaml")
-    shutil.copy2(protocol_source, run_dir / "protocol_snapshot/formal_protocol_v1.9.md")
+    shutil.copy2(protocol_source, run_dir / "protocol_snapshot/formal_protocol_v1.10.md")
     atomic_write_json(run_dir / "protocol_snapshot/config_resolved.json", {k: v for k, v in config.items() if not k.startswith("_")})
     atomic_write_text(run_dir / "logs/command.txt", " ".join(__import__("sys").argv) + "\n")
 
-    _write_rows(run_dir / "manifests/reference_manifest.csv", selected_prompts)
+    _write_rows(run_dir / "manifests/reference_candidate_manifest.csv", selected_prompts)
     _write_rows(run_dir / "manifests/sample_manifest.csv", selected_targets)
     _write_rows(run_dir / "manifests/clean_prior_manifest.csv", selected_clean)
     write_manifest(run_dir / "manifests/key_manifest.json", {
@@ -270,6 +385,8 @@ def _run_stage(
     rows = _load_existing_rows(result_path)
     completed = {str(row["unit_id"]) for row in rows}
     ledger_path = run_dir / "logs/unit_ledger.jsonl"
+    reference_control_path = run_dir / "manifests/reference_selection_control.csv"
+    reference_controls = _load_existing_rows(reference_control_path)
     visualization_keys = set(config["visualization_key_ids"])
 
     adapters = {
@@ -285,14 +402,12 @@ def _run_stage(
             key_seed = derive_seed("budget_pilot", "watermark_key", watermark, key_id)
             key_record = {"key_id": key_id, "watermark_seed": key_seed}
             key = adapter.create_key(key_record)
-            reference_rows = prompt_by_key[key_id][: int(config["main_N"])]
-            references = [
-                adapter.generate(
-                    row["prompt"], key,
-                    derive_seed("budget_pilot", "generation", watermark, key_id, row["reference_index"]),
-                )
-                for row in reference_rows
-            ]
+            references, reference_rows, reference_controls = _select_valid_references(
+                adapter=adapter, key=key, watermark=watermark, key_id=key_id,
+                candidate_rows=prompt_by_key[key_id], reference_count=int(config["main_N"]),
+                candidate_limit=candidate_limit, run_dir=run_dir, run_id=run_id, stage=stage,
+                control_path=reference_control_path, control_rows=reference_controls,
+            )
             reference_latents = _encode(vae, references)
             clean_images = [_open_rgb(row["path"]) for row in clean_by_key[key_id]]
             clean_latents = _encode(vae, clean_images)
@@ -356,7 +471,9 @@ def _run_stage(
                     nonlocal first_success
                     if step % int(config["detection_every"]):
                         return False
-                    detected = adapter.detect(image, key)
+                    # Early stopping must use the exact RGB uint8 representation
+                    # that would be persisted as the final PNG.
+                    detected = adapter.detect(_canonical_detection_image(image), key)
                     detections.append((step, detected))
                     _, succeeded, _ = attack_success(task, watermark, initial_detection.score, detected.score, threshold)
                     if succeeded and first_success is None:
@@ -370,13 +487,12 @@ def _run_stage(
                     original_image=source_tensor, history=history, checkpoint_callback=checkpoint,
                     stop_callback=stop,
                 )
-                final_pil = tensor_to_pil(result.image)
+                final_pil = _canonical_detection_image(result.image)
                 final_detection = adapter.detect(final_pil, key)
                 eligible, succeeded, accepted_after = attack_success(
                     task, watermark, initial_detection.score, final_detection.score, threshold
                 )
-                buffer = io.BytesIO(); final_pil.save(buffer, format="PNG")
-                png_bytes = buffer.getvalue(); output_hash = hashlib.sha256(png_bytes).hexdigest()
+                png_bytes, output_hash = _png_payload(final_pil)
                 if key_id in visualization_keys:
                     image_path = run_dir / "final_images_visualization_keys" / f"{task}_{watermark}_{key_id}.png"
                     atomic_write_bytes(image_path, png_bytes)
@@ -414,12 +530,40 @@ def _run_stage(
             image_path = run_dir / "final_images_visualization_keys" / f"{row['task']}_{row['watermark']}_{row['key_id']}.png"
             if sha256_file(image_path) != row["output_sha256"]:
                 raise RuntimeError(f"Smoke output hash mismatch: {image_path}")
+    selected_controls = [
+        row for row in reference_controls if str(row["selected"]).lower() == "true"
+    ]
+    expected_references = len(key_ids) * len(config["watermarks"]) * int(config["main_N"])
+    if len(selected_controls) != expected_references:
+        raise RuntimeError(
+            f"Reference validity report contains {len(selected_controls)} selected images; "
+            f"expected {expected_references}"
+        )
+    if any(str(row["accepted"]).lower() != "true" for row in selected_controls):
+        raise RuntimeError("Reference validity report contains an invalid selected image")
+    _atomic_csv(
+        run_dir / "manifests/reference_manifest.csv",
+        sorted(
+            selected_controls,
+            key=lambda row: (
+                str(row["watermark"]), str(row["key_id"]),
+                int(row["selected_reference_index"]),
+            ),
+        ),
+        REFERENCE_CONTROL_FIELDS,
+    )
     steps = list(range(int(config["detection_every"]), int(config["T_max"]) + 1, int(config["detection_every"])))
     _write_asr(rows, run_dir / "pilot_asr_by_step.csv", steps)
     figures = _plot_p0_curves(run_dir / "pilot_asr_by_step.csv", run_dir / "figures")
     hashes = {
         "pilot_first_success.csv": sha256_file(result_path),
         "pilot_asr_by_step.csv": sha256_file(run_dir / "pilot_asr_by_step.csv"),
+        "manifests/reference_selection_control.csv": sha256_file(reference_control_path),
+        "manifests/reference_manifest.csv": sha256_file(run_dir / "manifests/reference_manifest.csv"),
+        **{
+            str(row["image_path"]): sha256_file(run_dir / str(row["image_path"]))
+            for row in selected_controls
+        },
         **{path.relative_to(run_dir).as_posix(): sha256_file(path) for path in figures},
     }
     atomic_write_json(run_dir / ("smoke_report.json" if stage == "smoke" else "p0_run_report.json"), {
@@ -427,6 +571,9 @@ def _run_stage(
         "run_id": run_id, "git_sha": git_sha, "resolved_config_hash": config_hash,
         "key_count": len(key_ids), "unit_count": expected,
         "resume_states_validated": expected,
+        "reference_candidates_tested": len(reference_controls),
+        "valid_references_selected": len(selected_controls),
+        "all_selected_references_valid": True,
         "visualization_images_validated": expected if stage == "smoke" else len([row for row in rows if row["key_id"] in visualization_keys]),
         "hashes": hashes,
     })
@@ -449,7 +596,7 @@ def run_p0(
     assets = _assets_by_name(assets_lock)
     required = {
         "stable-diffusion-2-base", "stable-diffusion-v1-4", "tree-ring-watermark", "RingID",
-        "Gaussian-Shading", "formal-protocol-v1.9-prompt-manifest", "formal-protocol-v1.9-coco-manifests",
+        "Gaussian-Shading", "formal-protocol-v1.10-prompt-manifest", "formal-protocol-v1.10-coco-manifests",
     }
     missing = sorted(required - set(assets))
     if missing:

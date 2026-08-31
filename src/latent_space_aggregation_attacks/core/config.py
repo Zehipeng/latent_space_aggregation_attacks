@@ -78,6 +78,8 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError("P0 must explicitly lock runtime parameters for all watermarks")
         if float(runtime["tree_ring"].get("p_value_threshold", -1)) != 0.05:
             raise ValueError("Tree-Ring P0 threshold must be p<=0.05")
+        if int(runtime["tree_ring"].get("channel", -1)) != 0 or int(runtime["tree_ring"].get("radius", -1)) != 16:
+            raise ValueError("Tree-Ring must be locked to channel=0 and radius=16")
         if float(runtime["ringid"].get("p_value_threshold", -1)) != 0.05:
             raise ValueError("RingID P0 threshold must be p<=0.05")
         gaussian = runtime["gaussian_shading"]
@@ -85,3 +87,10 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError("Gaussian Shading P0 must use the registered FPR=1e-6 threshold")
         if gaussian.get("cipher") != "chacha20":
             raise ValueError("Gaussian Shading P0 cipher must be explicitly locked")
+        validity = config.get("reference_validity")
+        if not isinstance(validity, dict):
+            raise ValueError("P0 must define the reference validity policy")
+        if validity.get("selection_policy") != "first_accepted_from_preregistered_candidates":
+            raise ValueError("P0 reference selection policy is not locked")
+        if int(validity.get("candidate_limit", 0)) != 64 or validity.get("require_all_selected_accepted") is not True:
+            raise ValueError("P0 requires five valid references from 64 preregistered candidates")

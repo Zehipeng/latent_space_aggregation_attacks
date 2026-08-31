@@ -31,8 +31,8 @@ def main() -> None:
         "status": "PROMPT_MANIFEST_WRITTEN",
         "source_rows": len(prompts),
         "manifest_rows": len(rows),
-        "pilot_rows": 2_500,
-        "formal_rows": 5_000,
+        "pilot_rows": 6_400,
+        "formal_rows": 12_800,
         "manifest_sha256": sha256_file(args.output),
     }, indent=2))
 

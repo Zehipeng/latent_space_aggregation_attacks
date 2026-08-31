@@ -6,8 +6,8 @@ def asset_lock():
         {"name":"stable-diffusion-2-base","path":"/target","revision":"f5bc1bd97485577aa0b946fa8a9004e2ec147402"},
         {"name":"stable-diffusion-v1-4","path":"/proxy","revision":"133a221b8aa7292a167afc5127cb63fb5005638b"},
         {"name":"tree-ring-watermark","path":"/tree"}, {"name":"RingID","path":"/ring"},
-        {"name":"Gaussian-Shading","path":"/gs"}, {"name":"formal-protocol-v1.9-prompt-manifest","path":"/prompts"},
-        {"name":"formal-protocol-v1.9-coco-manifests","path":"/coco"},
+        {"name":"Gaussian-Shading","path":"/gs"}, {"name":"formal-protocol-v1.10-prompt-manifest","path":"/prompts"},
+        {"name":"formal-protocol-v1.10-coco-manifests","path":"/coco"},
     ]}
 
 
@@ -36,3 +36,46 @@ def test_p0_smoke_only_does_not_start_full(monkeypatch, tmp_path):
     result=p0.run_p0(config={},assets_lock=lock,output_root=tmp_path,run_id="run",smoke_only=True,project_root=tmp_path)
     assert calls==["smoke"]
     assert result["status"]=="SMOKE_PASSED"
+
+
+def test_reference_selection_uses_first_accepted_candidates_and_reuses_artifacts(tmp_path):
+    from types import SimpleNamespace
+    from PIL import Image
+
+    class Adapter:
+        def __init__(self): self.generated = 0
+        def generate(self, prompt, key, seed):
+            self.generated += 1
+            return Image.new("RGB", (2, 2), color=(int(prompt), 0, 0))
+        def detect(self, image, key):
+            value = image.getpixel((0, 0))[0]
+            return SimpleNamespace(score=float(value), score_name="test_score", accepted=value in {1, 3})
+
+    candidates = [
+        {"reference_index": str(index), "prompt": str(index), "prompt_sha256": f"hash-{index}"}
+        for index in range(4)
+    ]
+    adapter = Adapter()
+    control_path = tmp_path / "manifests" / "reference_selection_control.csv"
+    images, selected, controls = p0._select_valid_references(
+        adapter=adapter, key=object(), watermark="tree_ring", key_id="pilot_key_000",
+        candidate_rows=candidates, reference_count=2, candidate_limit=4,
+        run_dir=tmp_path, run_id="run", stage="smoke", control_path=control_path,
+        control_rows=[],
+    )
+    assert len(images) == 2
+    assert [row["reference_index"] for row in selected] == ["1", "3"]
+    assert [row["candidate_index"] for row in controls] == [0, 1, 2, 3]
+    assert all(row["accepted"] for row in controls if row["selected"])
+    assert adapter.generated == 4
+
+    images2, selected2, controls2 = p0._select_valid_references(
+        adapter=adapter, key=object(), watermark="tree_ring", key_id="pilot_key_000",
+        candidate_rows=candidates, reference_count=2, candidate_limit=4,
+        run_dir=tmp_path, run_id="run", stage="smoke", control_path=control_path,
+        control_rows=controls,
+    )
+    assert len(images2) == 2
+    assert [row["reference_index"] for row in selected2] == ["1", "3"]
+    assert controls2 == controls
+    assert adapter.generated == 4
