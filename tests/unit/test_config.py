@@ -10,8 +10,13 @@ def test_p0_config_is_valid():
     assert config["lambda_values"] == [10000.0]
     assert config["beta_values"] == [1.0]
     assert config["visualization_key_ids"] == []
-    assert config["persist_images"] is False
-    assert config["retain_non_visualization_images"] is False
+    assert config["T_max"] == 15000
+    assert config["p0_storage"] == {
+        "persist_reference_images": False,
+        "persist_attack_images": True,
+        "persist_asr_curve_images": True,
+    }
+    assert "retain_non_visualization_images" not in config
     assert config["watermark_runtime"]["tree_ring"]["radius"] == 16
     assert config["reference_validity"] == {
         "selection_policy": "first_accepted_from_preregistered_candidates",

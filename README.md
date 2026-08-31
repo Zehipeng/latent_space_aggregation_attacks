@@ -1,12 +1,13 @@
 # Latent Space Aggregation Attacks
 
-本项目是 `formal_protocol_v1.12` 的正式代码项目。权威协议快照位于
-`docs/protocols/formal_protocol_v1.12.md`；历史项目
+本项目是 `formal_protocol_v1.13` 的正式代码项目。权威协议快照位于
+`docs/protocols/formal_protocol_v1.13.md`；历史项目
 `jain_multiref_latent_experiment/` 只作为算法回归来源，不是正式运行入口。
 
 当前代码已实现P0预算选择的真实GPU执行链：固定revision的三种水印runtime、2-key smoke
-门禁、通过后自动进入50-key P0、每100步在线检测早停、每50步原子resume、累计ASR表和
-曲线。`T_formal`仍须在P0与固定预算确认后由用户批准冻结；此前正式入口继续拒绝执行。
+门禁、通过后自动进入50-key P0、候选上限15000步、每100步在线检测早停、每50步原子
+resume、累计ASR表和曲线。`T_formal`仍须在P0与固定预算确认后由用户批准冻结；此前正式
+入口继续拒绝执行。
 
 ## 威胁模型
 
@@ -108,7 +109,7 @@ python scripts/main_methods/run_budget_selection_pilot.py \
   --assets-lock local_assets/assets.lock.json \
   --offline \
   --smoke-only \
-  --run-id p0_v112_main
+  --run-id p0_v113_main
 ```
 
 正式启动P0时使用同一入口但移除`--smoke-only`。该命令先复用或完成匹配的2-key smoke，
@@ -119,11 +120,14 @@ python scripts/main_methods/run_budget_selection_pilot.py \
   --config configs/budget_pilot/p0.yaml \
   --assets-lock local_assets/assets.lock.json \
   --offline \
-  --run-id p0_v112_main
+  --run-id p0_v113_main
 ```
 
 中断后原样重跑同一命令和`run-id`即可续跑；完整单元直接跳过，活动单元从最近50步状态恢复。
-P0不持久保存参考PNG、攻击结果PNG或ASR曲线图片；只保留参考选择分数与图像哈希、逐单元指标、累计ASR CSV、报告、日志和临时resume状态。
+P0不持久保存参考PNG；参考图在需要时按预注册prompt/seed重新生成并核对规范RGB8哈希。
+2-key smoke保存12张攻击终点PNG，50-key P0保存300张攻击终点PNG；成功单元保存首次成功
+检查点，未成功单元保存第15000步终点。每个批次另保存伪造、移除各一张累计ASR曲线PNG，
+全部攻击图和曲线的路径及SHA-256写入CSV、报告和`checksums.sha256`。
 
 后续GPU验收必须依次完成：离线资产preflight、P0 2-key smoke、P0 50-key预算选择、用户提出
 `T_candidate`、50-key无检测固定预算确认、协议升级并冻结 `T_formal`、正式2-key smoke。

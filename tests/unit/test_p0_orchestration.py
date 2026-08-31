@@ -1,12 +1,31 @@
 from latent_space_aggregation_attacks.core import p0
 
 
-def test_p0_layout_has_no_persistent_image_directories(tmp_path):
+def test_p0_layout_separates_attack_outputs_from_nonpersistent_references(tmp_path):
     layout = p0._ensure_layout(tmp_path / "run")
     assert (layout / "resume_state").is_dir()
     assert not (layout / "reference_images").exists()
-    assert not (layout / "final_images_visualization_keys").exists()
-    assert not (layout / "figures").exists()
+    assert (layout / "final_images").is_dir()
+    assert (layout / "figures").is_dir()
+
+
+def test_p0_curve_plot_writes_forgery_and_removal_png(tmp_path):
+    csv_path = tmp_path / "pilot_asr_by_step.csv"
+    rows = []
+    for task in ("forgery", "removal"):
+        for watermark in ("tree_ring", "ringid", "gaussian_shading"):
+            rows.extend([
+                {"task": task, "watermark": watermark, "step": 100, "cumulative_asr": 0.25},
+                {"task": task, "watermark": watermark, "step": 200, "cumulative_asr": 0.5},
+            ])
+    p0._atomic_csv(csv_path, rows, ["task", "watermark", "step", "cumulative_asr"])
+
+    outputs = p0._plot_p0_curves(csv_path, tmp_path / "figures")
+
+    assert [path.name for path in outputs] == [
+        "pilot_forgery_asr_curve.png", "pilot_removal_asr_curve.png",
+    ]
+    assert all(path.is_file() and path.stat().st_size > 0 for path in outputs)
 
 
 def asset_lock():

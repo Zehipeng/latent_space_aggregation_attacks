@@ -1,4 +1,4 @@
-protocol_version: formal_protocol_v1.12
+protocol_version: formal_protocol_v1.13
 master_seed: 205
 run_mode: formal
 key_count: 200

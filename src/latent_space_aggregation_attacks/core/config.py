@@ -65,14 +65,19 @@ def validate_config(config: dict[str, Any]) -> None:
         if config.get("online_detection", False) or config.get("early_stop", False):
             raise ValueError("Formal attack must not use online detection or early stopping")
     if mode == "budget_pilot":
-        if int(config.get("T_max", 0)) != 1500 or int(config.get("detection_every", 0)) != 100:
-            raise ValueError("P0 requires T_max=1500 and detection_every=100")
+        if int(config.get("T_max", 0)) != 15000 or int(config.get("detection_every", 0)) != 100:
+            raise ValueError("P0 requires T_max=15000 and detection_every=100")
         if not config.get("online_detection") or not config.get("early_stop"):
             raise ValueError("P0 online stage requires detection and early stopping")
-        if config.get("visualization_key_ids") != [] or config.get("persist_images") is not False:
-            raise ValueError("P0 must not persist reference, attack-output, or figure images")
-        if config.get("retain_non_visualization_images") is not False:
-            raise ValueError("P0 must clean non-visualization images after atomic result recording")
+        if config.get("visualization_key_ids") != []:
+            raise ValueError("P0 does not use a visualization-key subset")
+        storage = config.get("p0_storage")
+        if storage != {
+            "persist_reference_images": False,
+            "persist_attack_images": True,
+            "persist_asr_curve_images": True,
+        }:
+            raise ValueError("P0 storage policy is not protocol-locked")
         runtime = config.get("watermark_runtime")
         if not isinstance(runtime, dict) or set(runtime) != WATERMARKS:
             raise ValueError("P0 must explicitly lock runtime parameters for all watermarks")

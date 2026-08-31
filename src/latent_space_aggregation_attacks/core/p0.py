@@ -102,6 +102,7 @@ def _bind_run_identity(path: Path, payload: dict[str, Any]) -> None:
 def _ensure_layout(path: Path) -> Path:
     names = (
         "protocol_snapshot", "manifests", "logs", "resume_state",
+        "final_images", "figures",
     )
     for name in names:
         (path / name).mkdir(parents=True, exist_ok=True)
@@ -314,11 +315,49 @@ def _write_asr(rows: list[dict[str, Any]], output: Path, steps: list[int]) -> No
     ])
 
 
+def _plot_p0_curves(csv_path: Path, figure_dir: Path) -> list[Path]:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    figure_dir.mkdir(parents=True, exist_ok=True)
+    rows = _read_csv(csv_path)
+    outputs = []
+    for task in ("forgery", "removal"):
+        figure, axis = plt.subplots(figsize=(7, 4.5))
+        for watermark, label in (
+            ("tree_ring", "Tree-Ring"),
+            ("ringid", "RingID"),
+            ("gaussian_shading", "Gaussian Shading"),
+        ):
+            selected = [
+                row for row in rows
+                if row["task"] == task and row["watermark"] == watermark
+            ]
+            axis.plot(
+                [int(row["step"]) for row in selected],
+                [float(row["cumulative_asr"]) if row["cumulative_asr"] else float("nan") for row in selected],
+                label=label,
+            )
+        axis.set(
+            xlabel="Optimization step", ylabel="Cumulative ASR", ylim=(0, 1.02),
+            title=f"P0 {task} online early-stop curve",
+        )
+        axis.grid(alpha=0.25)
+        axis.legend()
+        figure.tight_layout()
+        destination = figure_dir / f"pilot_{task}_asr_curve.png"
+        figure.savefig(destination, dpi=180)
+        plt.close(figure)
+        outputs.append(destination)
+    return outputs
+
+
 RESULT_FIELDS = [
     "protocol_version", "run_id", "stage", "unit_id", "task", "watermark", "model_setting",
     "key_id", "eligible", "initial_score", "final_score", "score_name", "accepted_before",
     "accepted_after", "success", "first_success_step", "executed_steps", "optimization_compute_time",
-    "input_hash", "output_sha256",
+    "input_hash", "output_sha256", "output_image_path",
 ]
 
 
@@ -368,6 +407,15 @@ def _run_stage(
     })
     result_path = run_dir / "pilot_first_success.csv"
     rows = _load_existing_rows(result_path)
+    valid_rows = []
+    for row in rows:
+        relative = str(row.get("output_image_path", ""))
+        image_path = run_dir / relative if relative else None
+        if image_path is not None and image_path.is_file() and sha256_file(image_path) == row.get("output_sha256"):
+            valid_rows.append(row)
+    if len(valid_rows) != len(rows):
+        rows = valid_rows
+        _atomic_csv(result_path, rows, RESULT_FIELDS)
     completed = {str(row["unit_id"]) for row in rows}
     ledger_path = run_dir / "logs/unit_ledger.jsonl"
     reference_control_path = run_dir / "manifests/reference_selection_control.csv"
@@ -475,7 +523,9 @@ def _run_stage(
                 eligible, succeeded, accepted_after = attack_success(
                     task, watermark, initial_detection.score, final_detection.score, threshold
                 )
-                _, output_hash = _png_payload(final_pil)
+                png_bytes, output_hash = _png_payload(final_pil)
+                output_relative = Path("final_images") / watermark / task / f"{key_id}.png"
+                atomic_write_bytes(run_dir / output_relative, png_bytes)
                 row = {
                     "protocol_version": PROTOCOL_VERSION, "run_id": run_id, "stage": stage,
                     "unit_id": unit_id, "task": task, "watermark": watermark,
@@ -487,6 +537,7 @@ def _run_stage(
                     "executed_steps": result.final_step,
                     "optimization_compute_time": result.optimization_compute_time,
                     "input_hash": input_hash, "output_sha256": output_hash,
+                    "output_image_path": output_relative.as_posix(),
                 }
                 rows.append(row)
                 _atomic_csv(result_path, rows, RESULT_FIELDS)
@@ -506,6 +557,9 @@ def _run_stage(
             resume_path, expected_unit_id=str(row["unit_id"]), input_hash=str(row["input_hash"]),
             resolved_config_hash=config_hash, protocol_version=PROTOCOL_VERSION, git_sha=git_sha,
         )
+        image_path = run_dir / str(row["output_image_path"])
+        if not image_path.is_file() or sha256_file(image_path) != row["output_sha256"]:
+            raise RuntimeError(f"Attack output image failed integrity check: {image_path}")
     selected_controls = [
         row for row in reference_controls if str(row["selected"]).lower() == "true"
     ]
@@ -530,11 +584,17 @@ def _run_stage(
     )
     steps = list(range(int(config["detection_every"]), int(config["T_max"]) + 1, int(config["detection_every"])))
     _write_asr(rows, run_dir / "pilot_asr_by_step.csv", steps)
+    figures = _plot_p0_curves(run_dir / "pilot_asr_by_step.csv", run_dir / "figures")
     hashes = {
         "pilot_first_success.csv": sha256_file(result_path),
         "pilot_asr_by_step.csv": sha256_file(run_dir / "pilot_asr_by_step.csv"),
         "manifests/reference_selection_control.csv": sha256_file(reference_control_path),
         "manifests/reference_manifest.csv": sha256_file(run_dir / "manifests/reference_manifest.csv"),
+        **{
+            str(row["output_image_path"]): sha256_file(run_dir / str(row["output_image_path"]))
+            for row in rows
+        },
+        **{path.relative_to(run_dir).as_posix(): sha256_file(path) for path in figures},
     }
     atomic_write_json(run_dir / ("smoke_report.json" if stage == "smoke" else "p0_run_report.json"), {
         "status": "PASSED" if stage == "smoke" else "COMPLETE", "stage": stage,
@@ -544,7 +604,12 @@ def _run_stage(
         "reference_candidates_tested": len(reference_controls),
         "valid_references_selected": len(selected_controls),
         "all_selected_references_valid": True,
-        "persistent_image_count": 0,
+        "persistent_reference_image_count": 0,
+        "persistent_attack_image_count": expected,
+        "persistent_asr_curve_image_count": len(figures),
+        "persistent_image_count": expected + len(figures),
+        "attack_result_images_validated": expected,
+        "asr_curve_images_validated": len(figures),
         "visualization_images_validated": 0,
         "hashes": hashes,
     })

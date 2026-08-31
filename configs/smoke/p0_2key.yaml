@@ -1,4 +1,4 @@
-protocol_version: formal_protocol_v1.12
+protocol_version: formal_protocol_v1.13
 master_seed: 205
 run_mode: budget_pilot
 key_count: 50
@@ -14,14 +14,16 @@ main_N: 5
 main_lambda: 10000.0
 main_beta: 1.0
 learning_rate: 0.02
-T_max: 1500
+T_max: 15000
 detection_every: 100
 resume_every: 50
 online_detection: true
 early_stop: true
 visualization_key_ids: []
-persist_images: false
-retain_non_visualization_images: false
+p0_storage:
+  persist_reference_images: false
+  persist_attack_images: true
+  persist_asr_curve_images: true
 reference_validity:
   selection_policy: first_accepted_from_preregistered_candidates
   candidate_limit: 64
