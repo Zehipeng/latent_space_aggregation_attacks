@@ -1,10 +1,10 @@
-protocol_version: formal_protocol_v1.13
+protocol_version: formal_protocol_v1.14
 master_seed: 205
 run_mode: budget_pilot
 key_count: 50
 model_settings: [cross_model_sd2_target_sd14_vae_proxy]
 watermarks: [tree_ring, ringid, gaussian_shading]
-tasks: [forgery, removal]
+tasks: [removal]
 methods: [proposed]
 N_values: [5]
 lambda_values: [10000.0]

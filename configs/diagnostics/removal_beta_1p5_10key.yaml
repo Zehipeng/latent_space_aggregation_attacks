@@ -1,29 +1,28 @@
-protocol_version: formal_protocol_v1.13
+protocol_version: formal_protocol_v1.14
 master_seed: 205
-run_mode: budget_pilot
-key_count: 50
-smoke_key_ids: [pilot_key_000, pilot_key_001]
+run_mode: removal_diagnostic
+key_count: 10
 model_settings: [cross_model_sd2_target_sd14_vae_proxy]
 watermarks: [tree_ring, ringid, gaussian_shading]
-tasks: [forgery, removal]
+tasks: [removal]
 methods: [proposed]
 N_values: [5]
 lambda_values: [10000.0]
-beta_values: [1.0]
+beta_values: [1.5]
 main_N: 5
 main_lambda: 10000.0
-main_beta: 1.0
+main_beta: 1.5
 learning_rate: 0.02
-T_max: 15000
+T_max: 3000
 detection_every: 100
 resume_every: 50
-online_detection: true
-early_stop: true
-visualization_key_ids: []
-p0_storage:
+online_detection: false
+early_stop: false
+diagnostic_storage:
   persist_reference_images: false
-  persist_attack_images: true
-  persist_asr_curve_images: true
+  persist_final_images: true
+  persist_checkpoint_images: false
+diagnostic_metrics: [ASR, l2, linf, LPIPS, SSIM, PSNR, optimization_progress_pct]
 reference_validity:
   selection_policy: first_accepted_from_preregistered_candidates
   candidate_limit: 64

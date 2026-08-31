@@ -9,22 +9,19 @@ def test_p0_layout_separates_attack_outputs_from_nonpersistent_references(tmp_pa
     assert (layout / "figures").is_dir()
 
 
-def test_p0_curve_plot_writes_forgery_and_removal_png(tmp_path):
+def test_p0_curve_plot_writes_only_the_task_specific_png(tmp_path):
     csv_path = tmp_path / "pilot_asr_by_step.csv"
     rows = []
-    for task in ("forgery", "removal"):
-        for watermark in ("tree_ring", "ringid", "gaussian_shading"):
-            rows.extend([
-                {"task": task, "watermark": watermark, "step": 100, "cumulative_asr": 0.25},
-                {"task": task, "watermark": watermark, "step": 200, "cumulative_asr": 0.5},
-            ])
+    for watermark in ("tree_ring", "ringid", "gaussian_shading"):
+        rows.extend([
+            {"task": "forgery", "watermark": watermark, "step": 100, "cumulative_asr": 0.25},
+            {"task": "forgery", "watermark": watermark, "step": 200, "cumulative_asr": 0.5},
+        ])
     p0._atomic_csv(csv_path, rows, ["task", "watermark", "step", "cumulative_asr"])
 
     outputs = p0._plot_p0_curves(csv_path, tmp_path / "figures")
 
-    assert [path.name for path in outputs] == [
-        "pilot_forgery_asr_curve.png", "pilot_removal_asr_curve.png",
-    ]
+    assert [path.name for path in outputs] == ["pilot_forgery_asr_curve.png"]
     assert all(path.is_file() and path.stat().st_size > 0 for path in outputs)
 
 
@@ -48,7 +45,7 @@ def test_p0_runs_smoke_before_full(monkeypatch, tmp_path):
         return tmp_path/kwargs["stage"],[]
     monkeypatch.setattr(p0,"_run_stage",fake_stage)
     lock=asset_lock()
-    result=p0.run_p0(config={"key_count":50},assets_lock=lock,output_root=tmp_path,run_id="run",smoke_only=False,project_root=tmp_path)
+    result=p0.run_p0(config={"key_count":50,"tasks":["forgery"]},assets_lock=lock,output_root=tmp_path,run_id="run",smoke_only=False,project_root=tmp_path,expected_task="forgery")
     assert calls==[("smoke",2),("p0",50)]
     assert result["status"]=="P0_COMPLETE"
 
@@ -60,9 +57,32 @@ def test_p0_smoke_only_does_not_start_full(monkeypatch, tmp_path):
     calls=[]
     monkeypatch.setattr(p0,"_run_stage",lambda **kwargs: (calls.append(kwargs["stage"]) or (tmp_path,[])))
     lock=asset_lock()
-    result=p0.run_p0(config={},assets_lock=lock,output_root=tmp_path,run_id="run",smoke_only=True,project_root=tmp_path)
+    result=p0.run_p0(config={"tasks":["removal"]},assets_lock=lock,output_root=tmp_path,run_id="run",smoke_only=True,project_root=tmp_path,expected_task="removal")
     assert calls==["smoke"]
     assert result["status"]=="SMOKE_PASSED"
+
+
+def test_p0_entry_point_rejects_the_other_task(tmp_path):
+    import pytest
+    with pytest.raises(ValueError, match="requires tasks"):
+        p0.run_p0(
+            config={"tasks": ["removal"]}, assets_lock=asset_lock(), output_root=tmp_path,
+            run_id="run", smoke_only=True, project_root=tmp_path, expected_task="forgery",
+        )
+
+
+def test_removal_diagnostic_summary_contains_only_requested_metrics(tmp_path):
+    rows = []
+    for watermark in ("tree_ring", "ringid", "gaussian_shading"):
+        rows.append({
+            "watermark": watermark, "eligible": True, "success": watermark == "tree_ring",
+            "l2": 1.0, "linf": 0.1, "LPIPS": 0.2, "SSIM": 0.9, "PSNR": 30.0,
+            "optimization_progress_pct": 50.0,
+        })
+    path = tmp_path / "summary.csv"
+    p0._write_removal_diagnostic_summary(rows, path)
+    header = path.read_text(encoding="utf-8").splitlines()[0]
+    assert header == "Watermark,Model,beta,eligible_n,ASR,l2,linf,LPIPS,SSIM,PSNR,optimization_progress_pct"
 
 
 def test_reference_selection_uses_first_accepted_candidates_and_reuses_artifacts(tmp_path):

@@ -34,21 +34,23 @@ def validate_config(config: dict[str, Any]) -> None:
     if int(config.get("master_seed", -1)) != MASTER_SEED:
         raise ValueError(f"master_seed must be {MASTER_SEED}")
     mode = config.get("run_mode")
-    if mode not in {"budget_pilot", "budget_confirmation", "smoke", "formal"}:
+    if mode not in {"budget_pilot", "budget_confirmation", "removal_diagnostic", "smoke", "formal"}:
         raise ValueError("Invalid run_mode")
     settings = set(config.get("model_settings", []))
-    if mode in {"budget_pilot", "budget_confirmation"}:
+    if mode in {"budget_pilot", "budget_confirmation", "removal_diagnostic"}:
         if settings != {"cross_model_sd2_target_sd14_vae_proxy"}:
             raise ValueError("P0 permits only the cross-model setting")
     elif not settings or not settings.issubset(MODEL_SETTINGS):
         raise ValueError("Formal/smoke model settings are invalid")
     if set(config.get("watermarks", [])) != WATERMARKS:
         raise ValueError("All three registered watermarks are required")
-    if int(config.get("key_count", 0)) not in ({50} if mode in {"budget_pilot", "budget_confirmation"} else {2, 200}):
+    expected_key_counts = {50} if mode in {"budget_pilot", "budget_confirmation"} else ({10} if mode == "removal_diagnostic" else {2, 200})
+    if int(config.get("key_count", 0)) not in expected_key_counts:
         raise ValueError("key_count does not match the run mode")
-    expected_n = [5] if mode in {"budget_pilot", "budget_confirmation"} else [1, 5, 25]
-    expected_lambda = [10000.0] if mode in {"budget_pilot", "budget_confirmation"} else [10000.0, 20000.0, 50000.0]
-    expected_beta = [1.0] if mode in {"budget_pilot", "budget_confirmation"} else [0.5, 1.0, 2.0]
+    pilot_like = mode in {"budget_pilot", "budget_confirmation", "removal_diagnostic"}
+    expected_n = [5] if pilot_like else [1, 5, 25]
+    expected_lambda = [10000.0] if pilot_like else [10000.0, 20000.0, 50000.0]
+    expected_beta = [1.5] if mode == "removal_diagnostic" else ([1.0] if mode in {"budget_pilot", "budget_confirmation"} else [0.5, 1.0, 2.0])
     if config.get("N_values") != expected_n:
         raise ValueError(f"N_values must be {expected_n} for {mode}")
     if config.get("lambda_values") != expected_lambda:
@@ -60,13 +62,18 @@ def validate_config(config: dict[str, Any]) -> None:
     if int(config.get("resume_every", -1)) != 50:
         raise ValueError("resume_every must be 50")
     if mode in {"formal", "smoke"}:
-        if config.get("T_formal") in {None, "UNFROZEN"}:
-            raise ValueError("T_formal is not frozen; formal execution is prohibited")
+        budgets = (config.get("T_forgery_formal"), config.get("T_removal_formal"))
+        if any(value in {None, "UNFROZEN"} for value in budgets):
+            raise ValueError("Task-level formal budgets are not frozen; formal execution is prohibited")
         if config.get("online_detection", False) or config.get("early_stop", False):
             raise ValueError("Formal attack must not use online detection or early stopping")
     if mode == "budget_pilot":
-        if int(config.get("T_max", 0)) != 15000 or int(config.get("detection_every", 0)) != 100:
-            raise ValueError("P0 requires T_max=15000 and detection_every=100")
+        tasks = config.get("tasks")
+        if tasks not in (["forgery"], ["removal"]):
+            raise ValueError("Each P0 config must contain exactly one task")
+        expected_t_max = 3000 if tasks == ["forgery"] else 15000
+        if int(config.get("T_max", 0)) != expected_t_max or int(config.get("detection_every", 0)) != 100:
+            raise ValueError(f"{tasks[0]} P0 requires T_max={expected_t_max} and detection_every=100")
         if not config.get("online_detection") or not config.get("early_stop"):
             raise ValueError("P0 online stage requires detection and early stopping")
         if config.get("visualization_key_ids") != []:
@@ -99,3 +106,32 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError("P0 reference selection policy is not locked")
         if int(validity.get("candidate_limit", 0)) != 64 or validity.get("require_all_selected_accepted") is not True:
             raise ValueError("P0 requires five valid references from 64 preregistered candidates")
+    if mode == "removal_diagnostic":
+        if config.get("tasks") != ["removal"] or config.get("methods") != ["proposed"]:
+            raise ValueError("Removal diagnostic permits only Proposed removal")
+        if (
+            int(config.get("main_N", 0)) != 5
+            or float(config.get("main_lambda", -1)) != 10000.0
+            or float(config.get("main_beta", -1)) != 1.5
+            or int(config.get("T_max", 0)) != 3000
+        ):
+            raise ValueError("Removal diagnostic requires N=5, lambda=10000, beta=1.5 and T_max=3000")
+        if config.get("online_detection") or config.get("early_stop"):
+            raise ValueError("Removal diagnostic must use fixed budget without online detection")
+        if config.get("diagnostic_storage") != {
+            "persist_reference_images": False,
+            "persist_final_images": True,
+            "persist_checkpoint_images": False,
+        }:
+            raise ValueError("Removal diagnostic storage policy is not protocol-locked")
+        if config.get("diagnostic_metrics") != [
+            "ASR", "l2", "linf", "LPIPS", "SSIM", "PSNR", "optimization_progress_pct",
+        ]:
+            raise ValueError("Removal diagnostic metrics are not protocol-locked")
+        validity = config.get("reference_validity", {})
+        if (
+            validity.get("selection_policy") != "first_accepted_from_preregistered_candidates"
+            or int(validity.get("candidate_limit", 0)) != 64
+            or validity.get("require_all_selected_accepted") is not True
+        ):
+            raise ValueError("Removal diagnostic reference validity policy is not protocol-locked")

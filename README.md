@@ -1,23 +1,25 @@
 # Latent Space Aggregation Attacks
 
-本项目是 `formal_protocol_v1.13` 的正式代码项目。权威协议快照位于
-`docs/protocols/formal_protocol_v1.13.md`；历史项目
+本项目是 `formal_protocol_v1.14` 的正式代码项目。权威协议快照位于
+`docs/protocols/formal_protocol_v1.14.md`；历史项目
 `jain_multiref_latent_experiment/` 只作为算法回归来源，不是正式运行入口。
 
-当前代码已实现P0预算选择的真实GPU执行链：固定revision的三种水印runtime、2-key smoke
-门禁、通过后自动进入50-key P0、候选上限15000步、每100步在线检测早停、每50步原子
-resume、累计ASR表和曲线。`T_formal`仍须在P0与固定预算确认后由用户批准冻结；此前正式
-入口继续拒绝执行。
+当前代码把伪造与移除P0拆成两个独立GPU执行链。伪造P0上限3000步，移除P0当前上限
+15000步；各自先过2-key smoke，再进入50-key、三水印、跨模型实验，并独立生成CSV、曲线
+和总结。另提供beta=1.5、10-key、固定3000步的移除诊断，只输出最终ASR、质量指标与
+阈值归一化优化进度，不保存检查点PNG。两个任务级正式预算仍未冻结。
 
 ## 威胁模型
 
 攻击进程只可访问同密钥水印参考图、公开 SD1.4 代理 VAE、非配对干净图和待攻击图。
-它不得导入、初始化或调用目标检测器。正式攻击固定运行至 `T_formal`；检测与质量评价
+它不得导入、初始化或调用目标检测器。正式攻击固定运行至任务级预算
+`T_forgery_formal`或`T_removal_formal`；检测与质量评价
 由独立进程在攻击完成后执行。P0 是唯一允许每100步在线检测并早停的独立阶段。
 
 ## 目录
 
-- `configs/budget_pilot/`：P0在线预算选择。
+- `configs/budget_pilot/`：任务分离的伪造/移除P0在线预算选择。
+- `configs/diagnostics/`：不并入P0或正式统计的预注册参数诊断。
 - `configs/formal/`：200-key正式配置；模板故意以 `UNFROZEN` 拒绝运行。
 - `configs/smoke/`：P0或正式2-key smoke配置。
 - `src/.../core/`：配置、seed、manifest、原子I/O、ledger、resume、锁、smoke gate。
@@ -36,7 +38,9 @@ resume、累计ASR表和曲线。`T_formal`仍须在P0与固定预算确认后�
 |---|---|---|---|
 | `main_methods/run_forgery.py` | Proposed固定预算伪造 | config、assets lock、manifest | 最终图、resume、ledger |
 | `main_methods/run_removal.py` | Proposed固定预算移除 | 同上 | 同上 |
-| `main_methods/run_budget_selection_pilot.py` | P0在线早停及固定预算确认 | P0 config/manifest | P0 CSV、曲线、总结 |
+| `main_methods/run_forgery_budget_pilot.py` | 伪造P0在线早停 | 伪造P0 config/manifest | 伪造P0 CSV、曲线、总结 |
+| `main_methods/run_removal_budget_pilot.py` | 移除P0在线早停 | 移除P0 config/manifest | 移除P0 CSV、曲线、总结 |
+| `main_methods/run_removal_beta_diagnostic.py` | beta=1.5固定预算移除诊断 | 10-key诊断config/manifest | ASR、质量、优化进度、最终图 |
 | `baselines/run_jain_forgery.py` | Jain伪造 | 正式输入 | 最终输出 |
 | `baselines/run_jain_removal.py` | Jain移除 | 正式输入 | 最终输出 |
 | `baselines/run_simple_averaging.py` | RGB非配对均值差、γ=1 | R/C manifest | 最终输出 |
@@ -95,42 +99,51 @@ flush/fsync和原子替换写入。COMPLETE单元经完整性校验后跳过；�
 
 ```bash
 python -m pytest -q
-python scripts/operations/inspect_run.py --config configs/budget_pilot/p0.yaml
+python scripts/operations/inspect_run.py --config configs/budget_pilot/p0_forgery.yaml
+python scripts/operations/inspect_run.py --config configs/budget_pilot/p0_removal.yaml
 ```
 
 ## P0运行
 
 先确认复用的v1.10 64候选提示词manifest、COCO manifest与`assets.lock.json`已通过离线预检，
-再运行Tree-Ring新旧GPU回归。回归报告必须为`PASSED`，之后才跑真实2-key GPU smoke：
+再运行Tree-Ring新旧GPU回归。回归报告必须为`PASSED`。先运行beta=1.5诊断：
 
 ```bash
-python scripts/main_methods/run_budget_selection_pilot.py \
-  --config configs/budget_pilot/p0.yaml \
+python scripts/main_methods/run_removal_beta_diagnostic.py \
+  --config configs/diagnostics/removal_beta_1p5_10key.yaml \
   --assets-lock local_assets/assets.lock.json \
   --offline \
-  --smoke-only \
-  --run-id p0_v113_main
+  --run-id removal_beta15_v114_r1
 ```
 
-正式启动P0时使用同一入口但移除`--smoke-only`。该命令先复用或完成匹配的2-key smoke，
-只有smoke报告通过才自动进入50-key、300单元P0：
+该命令自动先跑2-key smoke，再跑10-key、30单元固定预算诊断。攻击过程不检测、不早停，
+不保存检查点PNG；最终汇总列固定为ASR、l2、linf、LPIPS、SSIM、PSNR和
+`optimization_progress_pct`。用户审阅诊断结果后再决定是否升级移除P0的beta。
+
+伪造P0与移除P0必须分别运行，不能复用同一run-id或结果目录：
 
 ```bash
-python scripts/main_methods/run_budget_selection_pilot.py \
-  --config configs/budget_pilot/p0.yaml \
+python scripts/main_methods/run_forgery_budget_pilot.py \
+  --config configs/budget_pilot/p0_forgery.yaml \
   --assets-lock local_assets/assets.lock.json \
   --offline \
-  --run-id p0_v113_main
+  --run-id p0_forgery_v114_r1
+
+python scripts/main_methods/run_removal_budget_pilot.py \
+  --config configs/budget_pilot/p0_removal.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --offline \
+  --run-id p0_removal_v114_r1
 ```
 
 中断后原样重跑同一命令和`run-id`即可续跑；完整单元直接跳过，活动单元从最近50步状态恢复。
 P0不持久保存参考PNG；参考图在需要时按预注册prompt/seed重新生成并核对规范RGB8哈希。
-2-key smoke保存12张攻击终点PNG，50-key P0保存300张攻击终点PNG；成功单元保存首次成功
-检查点，未成功单元保存第15000步终点。每个批次另保存伪造、移除各一张累计ASR曲线PNG，
-全部攻击图和曲线的路径及SHA-256写入CSV、报告和`checksums.sha256`。
+每个任务的2-key smoke保存6张攻击终点PNG，50-key P0保存150张攻击终点PNG，并只生成
+本任务的一张累计ASR曲线。伪造失败单元保存第3000步终点；移除失败单元保存当前第15000步
+终点。两个任务的CSV和曲线不得混合。
 
-后续GPU验收必须依次完成：离线资产preflight、P0 2-key smoke、P0 50-key预算选择、用户提出
-`T_candidate`、50-key无检测固定预算确认、协议升级并冻结 `T_formal`、正式2-key smoke。
+后续GPU验收必须依次完成：beta诊断、伪造P0、移除P0、两个任务各自的50-key固定预算确认、
+协议升级并冻结`T_forgery_formal/T_removal_formal`、正式2-key smoke。
 在此前不得启动正式200-key实验。
 
 ## 当前明确门禁
@@ -139,4 +152,4 @@ P0配置显式锁定Tree-Ring为`channel=0,radius=16,p<=0.05`、RingID的`p<=0.0
 Gaussian Shading官方ChaCha20变体及FPR=`1e-6`对应的bit-accuracy阈值。每个key和水印
 从64个预注册有序候选中选择最先通过正式阈值的5张参考，并持久记录全部已测试候选及
 选中图像哈希；不足5张时批次失败。启动时同时核对三种官方代码revision。正式模板中的
-`T_formal: UNFROZEN`仍是安全门禁，不是默认值。
+`T_forgery_formal/T_removal_formal: UNFROZEN`仍是安全门禁，不是默认值。

@@ -3,30 +3,34 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-sys.path.insert(0,str(Path(__file__).resolve().parents[2]/"src"))
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+
 from latent_space_aggregation_attacks.core.p0 import run_p0
 from latent_space_aggregation_attacks.core.preflight import preflight
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run automatic P0 2-key smoke gate and 50-key online budget pilot")
+    parser = argparse.ArgumentParser(
+        description="Run the task-specific 2-key smoke gate and 50-key removal P0"
+    )
     parser.add_argument("--config", required=True)
     parser.add_argument("--assets-lock", required=True)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--preflight-only", action="store_true")
-    parser.add_argument("--smoke-only", action="store_true", help="Stop after the real 2-key GPU smoke passes")
+    parser.add_argument("--smoke-only", action="store_true")
     parser.add_argument("--output-root", default="../实验结果")
-    parser.add_argument("--run-id", default=None, help="Stable ID required to resume the same run")
+    parser.add_argument("--run-id", default=None)
     args = parser.parse_args()
     checked = preflight(args.config, args.assets_lock, offline=args.offline)
     if args.preflight_only:
-        print(json.dumps({"stage": "budget_selection_pilot", "status": checked["status"]}, indent=2))
+        print(json.dumps({"stage": "removal_budget_selection_pilot", "status": checked["status"]}, indent=2))
         return
-    run_id = args.run_id or datetime.now(timezone.utc).strftime("p0_%Y%m%dT%H%M%SZ")
-    project_root = Path(__file__).resolve().parents[2]
+    run_id = args.run_id or datetime.now(timezone.utc).strftime("p0_removal_%Y%m%dT%H%M%SZ")
     result = run_p0(
         config=checked["config"], assets_lock=checked["assets"], output_root=args.output_root,
-        run_id=run_id, smoke_only=args.smoke_only, project_root=project_root,
+        run_id=run_id, smoke_only=args.smoke_only,
+        project_root=Path(__file__).resolve().parents[2], expected_task="removal",
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

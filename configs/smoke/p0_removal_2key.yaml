@@ -1,0 +1,28 @@
+protocol_version: formal_protocol_v1.14
+master_seed: 205
+run_mode: budget_pilot
+key_count: 50
+smoke_key_ids: [pilot_key_000, pilot_key_001]
+model_settings: [cross_model_sd2_target_sd14_vae_proxy]
+watermarks: [tree_ring, ringid, gaussian_shading]
+tasks: [removal]
+methods: [proposed]
+N_values: [5]
+lambda_values: [10000.0]
+beta_values: [1.0]
+main_N: 5
+main_lambda: 10000.0
+main_beta: 1.0
+learning_rate: 0.02
+T_max: 15000
+detection_every: 100
+resume_every: 50
+online_detection: true
+early_stop: true
+visualization_key_ids: []
+p0_storage: {persist_reference_images: false, persist_attack_images: true, persist_asr_curve_images: true}
+reference_validity: {selection_policy: first_accepted_from_preregistered_candidates, candidate_limit: 64, require_all_selected_accepted: true}
+watermark_runtime:
+  tree_ring: {channel: 0, radius: 16, p_value_threshold: 0.05, generation_steps: 50, inversion_steps: 50}
+  ringid: {radius: 14, radius_cutoff: 3, ring_value_range: 64, p_value_threshold: 0.05, generation_steps: 50, inversion_steps: 50}
+  gaussian_shading: {cipher: chacha20, channel_copy: 1, hw_copy: 8, fpr: 0.000001, bit_accuracy_threshold: 0.6484375, generation_steps: 50, inversion_steps: 50}

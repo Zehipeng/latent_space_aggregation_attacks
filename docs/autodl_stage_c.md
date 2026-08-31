@@ -76,14 +76,26 @@ export TRANSFORMERS_OFFLINE=1
 export DIFFUSERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 
-python scripts/main_methods/run_budget_selection_pilot.py \
-  --config configs/smoke/p0_2key.yaml \
+python scripts/main_methods/run_forgery_budget_pilot.py \
+  --config configs/smoke/p0_forgery_2key.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --offline \
+  --preflight-only
+
+python scripts/main_methods/run_removal_budget_pilot.py \
+  --config configs/smoke/p0_removal_2key.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --offline \
+  --preflight-only
+
+python scripts/main_methods/run_removal_beta_diagnostic.py \
+  --config configs/diagnostics/removal_beta_1p5_10key.yaml \
   --assets-lock local_assets/assets.lock.json \
   --offline \
   --preflight-only
 
 python scripts/operations/run_tree_ring_regression.py \
-  --config configs/budget_pilot/p0.yaml \
+  --config configs/budget_pilot/p0_forgery.yaml \
   --assets-lock local_assets/assets.lock.json \
   --legacy-project /root/autodl-tmp/project/jain_multiref_latent_experiment \
   --output /root/autodl-tmp/实验结果/regression/tree_ring_v110.json \
@@ -92,24 +104,34 @@ python scripts/operations/run_tree_ring_regression.py \
 
 preflight失败时停止；不得删指标、换模型、换revision或联网回退。
 
-## 5. P0 2-key smoke门槛
+## 5. beta=1.5诊断与两个独立P0
 
-P0 smoke只使用`pilot_key_000/pilot_key_001`、三个水印、跨模型、Proposed伪造与移除，候选上限为15000步，保持每100步检测和早停。Tree-Ring固定`channel=0,radius=16`；每个key和水印从64个预注册候选中按顺序选择最先通过正式阈值的5张参考，任一选中参考无效或候选不足即失败。在线检测必须使用与最终PNG相同的RGB 8-bit表示。它还必须验证：两任务完成、在线累计ASR链路、resume恢复、行数/hash和参考控制manifest、12张攻击终点PNG以及2张累计ASR曲线PNG。参考PNG不持久保存；攻击成功不是smoke通过条件。
+三个入口各自先使用`pilot_key_000/pilot_key_001`完成smoke。伪造P0上限3000，移除P0当前上限15000，均每100步在线检测早停；每个P0 smoke应有6张攻击终点PNG和1张本任务曲线。beta诊断固定3000步、不中途检测、不早停、不保存检查点PNG，其smoke验证最终ASR、质量与优化进度评价链。
 
 三种水印runtime与P0编排器已经接通。只运行smoke时增加`--smoke-only`；退出码为0且
 `smoke_report.json`为`PASSED`才表示真实GPU smoke通过。preflight成功仍不等于smoke通过。
 
 ```bash
-python scripts/main_methods/run_budget_selection_pilot.py \
-  --config configs/budget_pilot/p0.yaml \
+python scripts/main_methods/run_removal_beta_diagnostic.py \
+  --config configs/diagnostics/removal_beta_1p5_10key.yaml \
   --assets-lock local_assets/assets.lock.json \
   --offline \
-  --smoke-only \
-  --run-id p0_v113_main
+  --run-id removal_beta15_v114_r1
+
+python scripts/main_methods/run_forgery_budget_pilot.py \
+  --config configs/budget_pilot/p0_forgery.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --offline \
+  --run-id p0_forgery_v114_r1
+
+python scripts/main_methods/run_removal_budget_pilot.py \
+  --config configs/budget_pilot/p0_removal.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --offline \
+  --run-id p0_removal_v114_r1
 ```
 
-确认smoke产物后，移除`--smoke-only`并保持相同`run-id`；编排器先复用匹配smoke，再自动进入
-50-key P0。中断时原样重跑即可按50步状态续跑。
+每个命令都会先复用或完成本入口自己的smoke，再进入10-key诊断或50-key P0。中断时只原样重跑对应命令；禁止把三个run-id或输出目录混用。
 
 ## 6. 失败时保留并返回
 

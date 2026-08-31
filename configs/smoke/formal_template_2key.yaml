@@ -1,4 +1,4 @@
-protocol_version: formal_protocol_v1.13
+protocol_version: formal_protocol_v1.14
 master_seed: 205
 run_mode: smoke
 key_count: 2
@@ -10,7 +10,8 @@ N_values: [1, 5, 25]
 lambda_values: [10000.0, 20000.0, 50000.0]
 beta_values: [0.5, 1.0, 2.0]
 learning_rate: 0.02
-T_formal: UNFROZEN
+T_forgery_formal: UNFROZEN
+T_removal_formal: UNFROZEN
 resume_every: 50
 online_detection: false
 early_stop: false

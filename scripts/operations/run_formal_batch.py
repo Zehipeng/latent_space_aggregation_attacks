@@ -11,5 +11,5 @@ def main() -> None:
     args=parser.parse_args(); result=preflight(args.config,args.assets_lock,offline=args.offline)
     if args.preflight_only:
         print(json.dumps({"status":result["status"]},indent=2)); return
-    raise RuntimeError("Formal execution remains gated until T_formal, assets, and manifests are frozen; then this orchestrator runs 2-key smoke before 200 keys")
+    raise RuntimeError("Formal execution remains gated until both task-level budgets, assets, and manifests are frozen; then this orchestrator runs 2-key smoke before 200 keys")
 if __name__=="__main__": main()

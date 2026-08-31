@@ -14,6 +14,10 @@ from typing import Any, Iterable
 
 from latent_space_aggregation_attacks import PROTOCOL_VERSION
 from latent_space_aggregation_attacks.evaluation.eligibility import success as attack_success
+from latent_space_aggregation_attacks.evaluation.metrics import (
+    paired_quality_metrics,
+    removal_optimization_progress_pct,
+)
 from latent_space_aggregation_attacks.methods.proposed.optimizer import optimize_fixed_budget
 from latent_space_aggregation_attacks.methods.proposed.targets import forgery_target, removal_target
 from latent_space_aggregation_attacks.models.loaders import load_proxy_vae, load_target_pipeline
@@ -322,8 +326,11 @@ def _plot_p0_curves(csv_path: Path, figure_dir: Path) -> list[Path]:
 
     figure_dir.mkdir(parents=True, exist_ok=True)
     rows = _read_csv(csv_path)
+    tasks = sorted({row["task"] for row in rows})
+    if len(tasks) != 1:
+        raise ValueError("A task-specific P0 result must contain exactly one task")
     outputs = []
-    for task in ("forgery", "removal"):
+    for task in tasks:
         figure, axis = plt.subplots(figsize=(7, 4.5))
         for watermark, label in (
             ("tree_ring", "Tree-Ring"),
@@ -360,19 +367,56 @@ RESULT_FIELDS = [
     "input_hash", "output_sha256", "output_image_path",
 ]
 
+DIAGNOSTIC_FIELDS = [
+    "protocol_version", "run_id", "stage", "unit_id", "watermark", "model_setting",
+    "key_id", "beta", "eligible", "initial_score", "final_score", "score_name",
+    "success", "final_step", "l2", "linf", "LPIPS", "SSIM", "PSNR",
+    "optimization_progress_pct", "input_hash", "output_sha256", "output_image_path",
+]
+
+
+def _write_removal_diagnostic_summary(rows: list[dict[str, Any]], path: Path) -> None:
+    fields = [
+        "Watermark", "Model", "beta", "eligible_n", "ASR", "l2", "linf",
+        "LPIPS", "SSIM", "PSNR", "optimization_progress_pct",
+    ]
+    summary = []
+    for watermark in ("tree_ring", "ringid", "gaussian_shading"):
+        eligible = [
+            row for row in rows
+            if row["watermark"] == watermark and str(row["eligible"]).lower() == "true"
+        ]
+        if not eligible:
+            raise RuntimeError(f"Removal diagnostic has no eligible rows for {watermark}")
+        summary.append({
+            "Watermark": watermark,
+            "Model": "SDv2.0",
+            "beta": 1.5,
+            "eligible_n": len(eligible),
+            "ASR": sum(str(row["success"]).lower() == "true" for row in eligible) / len(eligible),
+            **{
+                metric: sum(float(row[metric]) for row in eligible) / len(eligible)
+                for metric in ("l2", "linf", "LPIPS", "SSIM", "PSNR", "optimization_progress_pct")
+            },
+        })
+    _atomic_csv(path, summary, fields)
+
 
 def _run_stage(
     *, config: dict[str, Any], assets_lock: dict[str, Any], output_root: Path,
     run_id: str, key_ids: list[str], stage: str, pipe: Any, vae: Any, project_root: Path,
+    lpips_model: Any | None = None,
 ) -> tuple[Path, list[dict[str, Any]]]:
     import torch
 
     assets = _assets_by_name(assets_lock)
     prompt_by_key, target_by_key, clean_by_key = _load_inputs(assets)
-    run_dir = _ensure_layout(
-        output_root / ("smoke/P0" if stage == "smoke" else "budget_selection_pilot") /
-        (f"{run_id}_smoke" if stage == "smoke" else run_id)
-    )
+    diagnostic = config.get("run_mode") == "removal_diagnostic"
+    if diagnostic:
+        relative_root = "smoke/removal_beta_1p5" if stage == "smoke" else "diagnostics/removal_beta_1p5"
+    else:
+        relative_root = f"smoke/P0/{config['tasks'][0]}" if stage == "smoke" else f"budget_selection_pilot/{config['tasks'][0]}"
+    run_dir = _ensure_layout(output_root / relative_root / (f"{run_id}_smoke" if stage == "smoke" else run_id))
     git_sha = _git_sha(project_root)
     config_hash = config["resolved_config_hash"]
     candidate_limit = int(config["reference_validity"]["candidate_limit"])
@@ -405,7 +449,8 @@ def _run_stage(
             for watermark in config["watermarks"] for key_id in key_ids
         ],
     })
-    result_path = run_dir / "pilot_first_success.csv"
+    result_path = run_dir / ("removal_beta_1p5_per_key_metrics.csv" if diagnostic else "pilot_first_success.csv")
+    result_fields = DIAGNOSTIC_FIELDS if diagnostic else RESULT_FIELDS
     rows = _load_existing_rows(result_path)
     valid_rows = []
     for row in rows:
@@ -415,7 +460,7 @@ def _run_stage(
             valid_rows.append(row)
     if len(valid_rows) != len(rows):
         rows = valid_rows
-        _atomic_csv(result_path, rows, RESULT_FIELDS)
+        _atomic_csv(result_path, rows, result_fields)
     completed = {str(row["unit_id"]) for row in rows}
     ledger_path = run_dir / "logs/unit_ledger.jsonl"
     reference_control_path = run_dir / "manifests/reference_selection_control.csv"
@@ -424,11 +469,12 @@ def _run_stage(
         watermark: registered_adapter(watermark, _adapter_config(config, watermark, pipe, assets))
         for watermark in config["watermarks"]
     }
+    unit_prefix = "REMOVAL_BETA_1P5" if diagnostic else "P0"
     for watermark in config["watermarks"]:
         adapter = adapters[watermark]
         threshold = _threshold(config, watermark)
         for key_id in key_ids:
-            if all(f"P0|{task}|{watermark}|{key_id}|proposed" in completed for task in config["tasks"]):
+            if all(f"{unit_prefix}|{task}|{watermark}|{key_id}|proposed" in completed for task in config["tasks"]):
                 continue
             key_seed = derive_seed("budget_pilot", "watermark_key", watermark, key_id)
             key_record = {"key_id": key_id, "watermark_seed": key_seed}
@@ -442,14 +488,15 @@ def _run_stage(
             reference_latents = _encode(vae, references)
             clean_images = [_open_rgb(row["path"]) for row in clean_by_key[key_id]]
             clean_latents = _encode(vae, clean_images)
-            cover = _open_rgb(target_by_key[key_id]["path"])
-            task_inputs = {"forgery": cover, "removal": references[0]}
-            targets = {
-                "forgery": forgery_target(reference_latents),
+            task_inputs: dict[str, Any] = {"removal": references[0]}
+            targets: dict[str, Any] = {
                 "removal": removal_target(reference_latents[0:1], reference_latents, clean_latents, float(config["main_beta"])),
             }
+            if "forgery" in config["tasks"]:
+                task_inputs["forgery"] = _open_rgb(target_by_key[key_id]["path"])
+                targets["forgery"] = forgery_target(reference_latents)
             for task in config["tasks"]:
-                unit_id = f"P0|{task}|{watermark}|{key_id}|proposed"
+                unit_id = f"{unit_prefix}|{task}|{watermark}|{key_id}|proposed"
                 if unit_id in completed:
                     continue
                 append_event(ledger_path, LedgerEvent(unit_id, "RUNNING"))
@@ -516,7 +563,7 @@ def _run_stage(
                     lambda_pixel=float(config["main_lambda"]), learning_rate=float(config["learning_rate"]),
                     final_step=int(config["T_max"]), start_step=start_step, current_image=current_tensor,
                     original_image=source_tensor, history=history, checkpoint_callback=checkpoint,
-                    stop_callback=stop,
+                    stop_callback=stop if config.get("online_detection") else None,
                 )
                 final_pil = _canonical_detection_image(result.image)
                 final_detection = adapter.detect(final_pil, key)
@@ -526,21 +573,40 @@ def _run_stage(
                 png_bytes, output_hash = _png_payload(final_pil)
                 output_relative = Path("final_images") / watermark / task / f"{key_id}.png"
                 atomic_write_bytes(run_dir / output_relative, png_bytes)
-                row = {
-                    "protocol_version": PROTOCOL_VERSION, "run_id": run_id, "stage": stage,
-                    "unit_id": unit_id, "task": task, "watermark": watermark,
-                    "model_setting": "cross_model_sd2_target_sd14_vae_proxy", "key_id": key_id,
-                    "eligible": bool(eligible), "initial_score": initial_detection.score,
-                    "final_score": final_detection.score, "score_name": final_detection.score_name,
-                    "accepted_before": initial_detection.accepted, "accepted_after": accepted_after,
-                    "success": bool(succeeded), "first_success_step": first_success if first_success is not None else "",
-                    "executed_steps": result.final_step,
-                    "optimization_compute_time": result.optimization_compute_time,
-                    "input_hash": input_hash, "output_sha256": output_hash,
-                    "output_image_path": output_relative.as_posix(),
-                }
+                if diagnostic:
+                    if lpips_model is None:
+                        raise RuntimeError("Removal diagnostic requires the locked LPIPS-Alex evaluator")
+                    quality = paired_quality_metrics(source_image, final_pil, lpips_model)
+                    row = {
+                        "protocol_version": PROTOCOL_VERSION, "run_id": run_id, "stage": stage,
+                        "unit_id": unit_id, "watermark": watermark,
+                        "model_setting": "cross_model_sd2_target_sd14_vae_proxy", "key_id": key_id,
+                        "beta": float(config["main_beta"]), "eligible": bool(eligible),
+                        "initial_score": initial_detection.score, "final_score": final_detection.score,
+                        "score_name": final_detection.score_name, "success": bool(succeeded),
+                        "final_step": result.final_step, **quality,
+                        "optimization_progress_pct": removal_optimization_progress_pct(
+                            watermark, initial_detection.score, final_detection.score, threshold,
+                        ),
+                        "input_hash": input_hash, "output_sha256": output_hash,
+                        "output_image_path": output_relative.as_posix(),
+                    }
+                else:
+                    row = {
+                        "protocol_version": PROTOCOL_VERSION, "run_id": run_id, "stage": stage,
+                        "unit_id": unit_id, "task": task, "watermark": watermark,
+                        "model_setting": "cross_model_sd2_target_sd14_vae_proxy", "key_id": key_id,
+                        "eligible": bool(eligible), "initial_score": initial_detection.score,
+                        "final_score": final_detection.score, "score_name": final_detection.score_name,
+                        "accepted_before": initial_detection.accepted, "accepted_after": accepted_after,
+                        "success": bool(succeeded), "first_success_step": first_success if first_success is not None else "",
+                        "executed_steps": result.final_step,
+                        "optimization_compute_time": result.optimization_compute_time,
+                        "input_hash": input_hash, "output_sha256": output_hash,
+                        "output_image_path": output_relative.as_posix(),
+                    }
                 rows.append(row)
-                _atomic_csv(result_path, rows, RESULT_FIELDS)
+                _atomic_csv(result_path, rows, result_fields)
                 append_event(ledger_path, LedgerEvent(unit_id, "COMPLETE"))
             del references, reference_latents, clean_images, clean_latents
             if torch.cuda.is_available():
@@ -552,6 +618,12 @@ def _run_stage(
     for row in rows:
         if not math.isfinite(float(row["initial_score"])) or not math.isfinite(float(row["final_score"])):
             raise RuntimeError(f"Non-finite detector score: {row['unit_id']}")
+        if diagnostic:
+            if int(row["final_step"]) != int(config["T_max"]):
+                raise RuntimeError(f"Diagnostic unit did not complete the fixed budget: {row['unit_id']}")
+            for metric in ("l2", "linf", "LPIPS", "SSIM", "PSNR", "optimization_progress_pct"):
+                if not math.isfinite(float(row[metric])):
+                    raise RuntimeError(f"Non-finite diagnostic metric {metric}: {row['unit_id']}")
         resume_path = run_dir / "resume_state" / f"{stable_hash(row['unit_id'])[:20]}.pkl"
         load_resume_state(
             resume_path, expected_unit_id=str(row["unit_id"]), input_hash=str(row["input_hash"]),
@@ -582,12 +654,16 @@ def _run_stage(
         ),
         REFERENCE_CONTROL_FIELDS,
     )
-    steps = list(range(int(config["detection_every"]), int(config["T_max"]) + 1, int(config["detection_every"])))
-    _write_asr(rows, run_dir / "pilot_asr_by_step.csv", steps)
-    figures = _plot_p0_curves(run_dir / "pilot_asr_by_step.csv", run_dir / "figures")
+    figures: list[Path] = []
+    if diagnostic:
+        summary_path = run_dir / "removal_beta_1p5_summary.csv"
+        _write_removal_diagnostic_summary(rows, summary_path)
+    else:
+        steps = list(range(int(config["detection_every"]), int(config["T_max"]) + 1, int(config["detection_every"])))
+        _write_asr(rows, run_dir / "pilot_asr_by_step.csv", steps)
+        figures = _plot_p0_curves(run_dir / "pilot_asr_by_step.csv", run_dir / "figures")
     hashes = {
-        "pilot_first_success.csv": sha256_file(result_path),
-        "pilot_asr_by_step.csv": sha256_file(run_dir / "pilot_asr_by_step.csv"),
+        result_path.name: sha256_file(result_path),
         "manifests/reference_selection_control.csv": sha256_file(reference_control_path),
         "manifests/reference_manifest.csv": sha256_file(run_dir / "manifests/reference_manifest.csv"),
         **{
@@ -596,7 +672,17 @@ def _run_stage(
         },
         **{path.relative_to(run_dir).as_posix(): sha256_file(path) for path in figures},
     }
-    atomic_write_json(run_dir / ("smoke_report.json" if stage == "smoke" else "p0_run_report.json"), {
+    if diagnostic:
+        hashes[summary_path.name] = sha256_file(summary_path)
+    else:
+        hashes["pilot_asr_by_step.csv"] = sha256_file(run_dir / "pilot_asr_by_step.csv")
+    checkpoint_image_count = len(list((run_dir / "resume_state").rglob("*.png")))
+    if diagnostic and checkpoint_image_count:
+        raise RuntimeError("Removal diagnostic must not persist checkpoint PNGs")
+    report_name = "smoke_report.json" if stage == "smoke" else (
+        "removal_beta_1p5_report.json" if diagnostic else "p0_run_report.json"
+    )
+    atomic_write_json(run_dir / report_name, {
         "status": "PASSED" if stage == "smoke" else "COMPLETE", "stage": stage,
         "run_id": run_id, "git_sha": git_sha, "resolved_config_hash": config_hash,
         "key_count": len(key_ids), "unit_count": expected,
@@ -608,6 +694,7 @@ def _run_stage(
         "persistent_attack_image_count": expected,
         "persistent_asr_curve_image_count": len(figures),
         "persistent_image_count": expected + len(figures),
+        "persistent_checkpoint_image_count": checkpoint_image_count,
         "attack_result_images_validated": expected,
         "asr_curve_images_validated": len(figures),
         "visualization_images_validated": 0,
@@ -615,9 +702,16 @@ def _run_stage(
     })
     checksum_lines = [f"{digest}  {name}" for name, digest in sorted(hashes.items())]
     atomic_write_text(run_dir / "checksums.sha256", "\n".join(checksum_lines) + "\n")
-    if stage == "p0":
+    if diagnostic and stage != "smoke":
+        atomic_write_text(run_dir / f"{run_id}_移除beta1.5诊断总结.md", (
+            f"# 移除攻击 beta=1.5 诊断总结\n\n- 状态：COMPLETE\n- 协议：{PROTOCOL_VERSION}\n"
+            f"- run_id：`{run_id}`\n- Git SHA：`{git_sha}`\n- pilot keys：{len(key_ids)}\n"
+            f"- 固定迭代步数：{config['T_max']}\n- 攻击单元：{expected}\n"
+            "- 检查点图像：0\n\n结果仅用于观察beta=1.5的移除效果，不并入P0或正式结果。\n"
+        ))
+    elif stage == "p0":
         atomic_write_text(run_dir / f"{run_id}_预算选择总结.md", (
-            f"# P0预算选择实验总结\n\n- 状态：COMPLETE\n- 协议：{PROTOCOL_VERSION}\n"
+            f"# {config['tasks'][0]} P0预算选择实验总结\n\n- 状态：COMPLETE\n- 协议：{PROTOCOL_VERSION}\n"
             f"- run_id：`{run_id}`\n- Git SHA：`{git_sha}`\n- pilot keys：{len(key_ids)}\n"
             f"- 攻击单元：{expected}\n\n本文件只确认P0在线早停曲线已完整生成；"
             "T_candidate须由用户审阅曲线后提出，P0不得并入正式结果。\n"
@@ -627,8 +721,10 @@ def _run_stage(
 
 def run_p0(
     *, config: dict[str, Any], assets_lock: dict[str, Any], output_root: str | Path,
-    run_id: str, smoke_only: bool, project_root: str | Path,
+    run_id: str, smoke_only: bool, project_root: str | Path, expected_task: str,
 ) -> dict[str, Any]:
+    if config.get("tasks") != [expected_task] or expected_task not in {"forgery", "removal"}:
+        raise ValueError(f"This entry point requires tasks: [{expected_task}]")
     assets = _assets_by_name(assets_lock)
     required = {
         "stable-diffusion-2-base", "stable-diffusion-v1-4", "tree-ring-watermark", "RingID",
@@ -659,7 +755,7 @@ def run_p0(
         key_ids=["pilot_key_000", "pilot_key_001"], stage="smoke", pipe=pipe, vae=vae,
         project_root=project,
     )
-    result: dict[str, Any] = {"status": "SMOKE_PASSED", "smoke_dir": str(smoke_dir)}
+    result: dict[str, Any] = {"status": "SMOKE_PASSED", "task": expected_task, "smoke_dir": str(smoke_dir)}
     if not smoke_only:
         full_dir, _ = _run_stage(
             config=config, assets_lock=assets_lock, output_root=root, run_id=run_id,
@@ -668,4 +764,62 @@ def run_p0(
             project_root=project,
         )
         result.update(status="P0_COMPLETE", p0_dir=str(full_dir))
+    return result
+
+
+def run_removal_diagnostic(
+    *, config: dict[str, Any], assets_lock: dict[str, Any], output_root: str | Path,
+    run_id: str, smoke_only: bool, project_root: str | Path,
+) -> dict[str, Any]:
+    if config.get("run_mode") != "removal_diagnostic":
+        raise ValueError("Removal diagnostic entry point requires run_mode=removal_diagnostic")
+    assets = _assets_by_name(assets_lock)
+    required = {
+        "stable-diffusion-2-base", "stable-diffusion-v1-4", "tree-ring-watermark", "RingID",
+        "Gaussian-Shading", "formal-protocol-v1.10-prompt-manifest",
+        "formal-protocol-v1.10-coco-manifests", "lpips-alex-v0.1", "alexnet-imagenet1k",
+    }
+    missing = sorted(required - set(assets))
+    if missing:
+        raise ValueError(f"Removal diagnostic assets.lock.json is missing: {missing}")
+    expected_revisions = {
+        "stable-diffusion-2-base": "f5bc1bd97485577aa0b946fa8a9004e2ec147402",
+        "stable-diffusion-v1-4": "133a221b8aa7292a167afc5127cb63fb5005638b",
+        "lpips-alex-v0.1": "lpips-0.1.4-v0.1",
+        "alexnet-imagenet1k": "torchvision-0.16.2-IMAGENET1K_V1",
+    }
+    for name, revision in expected_revisions.items():
+        if assets[name].get("revision") != revision:
+            raise ValueError(f"{name} revision must be {revision}")
+    _require_gpu_runtime()
+    import lpips
+    import torch
+
+    torch.hub.set_dir(str(Path(assets["alexnet-imagenet1k"]["path"]).resolve().parents[1]))
+    model = {
+        "target_model_path": assets["stable-diffusion-2-base"]["path"],
+        "proxy_vae_path": assets["stable-diffusion-v1-4"]["path"],
+        "proxy_vae_subfolder": "vae", "dtype": "float16", "device": "cuda",
+    }
+    pipe = load_target_pipeline(model, offline=True)
+    vae = load_proxy_vae(model, offline=True)
+    lpips_model = lpips.LPIPS(net="alex", version="0.1", verbose=False).to("cuda").eval()
+    root = Path(output_root).resolve()
+    project = Path(project_root).resolve()
+    smoke_dir, _ = _run_stage(
+        config=config, assets_lock=assets_lock, output_root=root, run_id=run_id,
+        key_ids=["pilot_key_000", "pilot_key_001"], stage="smoke", pipe=pipe, vae=vae,
+        project_root=project, lpips_model=lpips_model,
+    )
+    result: dict[str, Any] = {
+        "status": "SMOKE_PASSED", "experiment": "removal_beta_1p5_diagnostic",
+        "smoke_dir": str(smoke_dir),
+    }
+    if not smoke_only:
+        diagnostic_dir, _ = _run_stage(
+            config=config, assets_lock=assets_lock, output_root=root, run_id=run_id,
+            key_ids=[f"pilot_key_{index:03d}" for index in range(10)], stage="diagnostic",
+            pipe=pipe, vae=vae, project_root=project, lpips_model=lpips_model,
+        )
+        result.update(status="DIAGNOSTIC_COMPLETE", diagnostic_dir=str(diagnostic_dir))
     return result
