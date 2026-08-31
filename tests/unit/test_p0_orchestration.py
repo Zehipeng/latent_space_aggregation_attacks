@@ -21,8 +21,8 @@ def test_p0_runs_smoke_before_full(monkeypatch, tmp_path):
         return tmp_path/kwargs["stage"],[]
     monkeypatch.setattr(p0,"_run_stage",fake_stage)
     lock=asset_lock()
-    result=p0.run_p0(config={},assets_lock=lock,output_root=tmp_path,run_id="run",smoke_only=False,project_root=tmp_path)
-    assert calls==[("smoke",2),("p0",100)]
+    result=p0.run_p0(config={"key_count":50},assets_lock=lock,output_root=tmp_path,run_id="run",smoke_only=False,project_root=tmp_path)
+    assert calls==[("smoke",2),("p0",50)]
     assert result["status"]=="P0_COMPLETE"
 
 

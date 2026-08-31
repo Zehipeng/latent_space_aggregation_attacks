@@ -5,6 +5,7 @@ ROOT=Path(__file__).resolve().parents[2]
 def test_p0_config_is_valid():
     config = load_config(ROOT / "configs/budget_pilot/p0.yaml")
     assert config["master_seed"] == 205
+    assert config["key_count"] == 50
     assert config["N_values"] == [5]
     assert config["lambda_values"] == [10000.0]
     assert config["beta_values"] == [1.0]

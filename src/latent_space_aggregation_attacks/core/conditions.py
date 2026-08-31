@@ -53,7 +53,7 @@ def formal_condition_registry() -> list[Condition]:
 
 
 def expected_output_counts() -> dict[str, int]:
-    return {"formal_unique_outputs": 34800, "iterative_outputs": 21600, "p0_online_units": 600, "p0_confirmation_units": 600}
+    return {"formal_unique_outputs": 34800, "iterative_outputs": 21600, "p0_online_units": 300, "p0_confirmation_units": 300}
 
 
 def validate_registry_scale(conditions: list[Condition]) -> None:

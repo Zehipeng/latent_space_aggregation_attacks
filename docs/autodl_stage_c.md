@@ -109,7 +109,7 @@ python scripts/main_methods/run_budget_selection_pilot.py \
 ```
 
 确认smoke产物后，移除`--smoke-only`并保持相同`run-id`；编排器先复用匹配smoke，再自动进入
-100-key P0。中断时原样重跑即可按50步状态续跑。
+50-key P0。中断时原样重跑即可按50步状态续跑。
 
 ## 6. 失败时保留并返回
 
@@ -121,4 +121,4 @@ python --version
 python -m pytest -q
 ```
 
-同时返回资产preflight输出、smoke命令、退出码、日志末尾、manifest、预期/实际文件数量和异常。失败后必须停止，不能进入100-key P0或正式实验。
+同时返回资产preflight输出、smoke命令、退出码、日志末尾、manifest、预期/实际文件数量和异常。失败后必须停止，不能进入50-key P0或正式实验。

@@ -9,7 +9,7 @@ from latent_space_aggregation_attacks.core.preflight import preflight
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run automatic P0 2-key smoke gate and 100-key online budget pilot")
+    parser = argparse.ArgumentParser(description="Run automatic P0 2-key smoke gate and 50-key online budget pilot")
     parser.add_argument("--config", required=True)
     parser.add_argument("--assets-lock", required=True)
     parser.add_argument("--offline", action="store_true")

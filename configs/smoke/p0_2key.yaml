@@ -1,7 +1,7 @@
-protocol_version: formal_protocol_v1.10
+protocol_version: formal_protocol_v1.11
 master_seed: 205
 run_mode: budget_pilot
-key_count: 100
+key_count: 50
 smoke_key_ids: [pilot_key_000, pilot_key_001]
 model_settings: [cross_model_sd2_target_sd14_vae_proxy]
 watermarks: [tree_ring, ringid, gaussian_shading]

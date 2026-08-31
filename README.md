@@ -1,11 +1,11 @@
 # Latent Space Aggregation Attacks
 
-本项目是 `formal_protocol_v1.10` 的正式代码项目。权威协议快照位于
-`docs/protocols/formal_protocol_v1.10.md`；历史项目
+本项目是 `formal_protocol_v1.11` 的正式代码项目。权威协议快照位于
+`docs/protocols/formal_protocol_v1.11.md`；历史项目
 `jain_multiref_latent_experiment/` 只作为算法回归来源，不是正式运行入口。
 
 当前代码已实现P0预算选择的真实GPU执行链：固定revision的三种水印runtime、2-key smoke
-门禁、通过后自动进入100-key P0、每100步在线检测早停、每50步原子resume、累计ASR表和
+门禁、通过后自动进入50-key P0、每100步在线检测早停、每50步原子resume、累计ASR表和
 曲线。`T_formal`仍须在P0与固定预算确认后由用户批准冻结；此前正式入口继续拒绝执行。
 
 ## 威胁模型
@@ -20,7 +20,7 @@
 - `configs/formal/`：200-key正式配置；模板故意以 `UNFROZEN` 拒绝运行。
 - `configs/smoke/`：P0或正式2-key smoke配置。
 - `src/.../core/`：配置、seed、manifest、原子I/O、ledger、resume、锁、smoke gate。
-- `src/.../data/`：200/100-key及嵌套参考集合。
+- `src/.../data/`：200-key正式集合、50-key P0子集及嵌套参考集合。
 - `src/.../models/`：离线资产锁和本地模型加载。
 - `src/.../watermarks/`：Tree-Ring、RingID、Gaussian Shading统一接口。
 - `src/.../methods/proposed/`：Proposed伪造/移除与检测器无关的优化器。
@@ -99,7 +99,7 @@ python scripts/operations/inspect_run.py --config configs/budget_pilot/p0.yaml
 
 ## P0运行
 
-先确认v1.10的64候选提示词manifest、COCO manifest与`assets.lock.json`已通过离线预检，
+先确认复用的v1.10 64候选提示词manifest、COCO manifest与`assets.lock.json`已通过离线预检，
 再运行Tree-Ring新旧GPU回归。回归报告必须为`PASSED`，之后才跑真实2-key GPU smoke：
 
 ```bash
@@ -108,24 +108,24 @@ python scripts/main_methods/run_budget_selection_pilot.py \
   --assets-lock local_assets/assets.lock.json \
   --offline \
   --smoke-only \
-  --run-id p0_v110_main
+  --run-id p0_v111_main
 ```
 
 正式启动P0时使用同一入口但移除`--smoke-only`。该命令先复用或完成匹配的2-key smoke，
-只有smoke报告通过才自动进入100-key、600单元P0：
+只有smoke报告通过才自动进入50-key、300单元P0：
 
 ```bash
 python scripts/main_methods/run_budget_selection_pilot.py \
   --config configs/budget_pilot/p0.yaml \
   --assets-lock local_assets/assets.lock.json \
   --offline \
-  --run-id p0_v110_main
+  --run-id p0_v111_main
 ```
 
 中断后原样重跑同一命令和`run-id`即可续跑；完整单元直接跳过，活动单元从最近50步状态恢复。
 
-后续GPU验收必须依次完成：离线资产preflight、P0 2-key smoke、P0 100-key预算选择、用户提出
-`T_candidate`、100-key无检测固定预算确认、协议升级并冻结 `T_formal`、正式2-key smoke。
+后续GPU验收必须依次完成：离线资产preflight、P0 2-key smoke、P0 50-key预算选择、用户提出
+`T_candidate`、50-key无检测固定预算确认、协议升级并冻结 `T_formal`、正式2-key smoke。
 在此前不得启动正式200-key实验。
 
 ## 当前明确门禁

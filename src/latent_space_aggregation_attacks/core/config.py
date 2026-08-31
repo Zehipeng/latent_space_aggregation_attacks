@@ -44,7 +44,7 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("Formal/smoke model settings are invalid")
     if set(config.get("watermarks", [])) != WATERMARKS:
         raise ValueError("All three registered watermarks are required")
-    if int(config.get("key_count", 0)) not in ({100} if mode in {"budget_pilot", "budget_confirmation"} else {2, 200}):
+    if int(config.get("key_count", 0)) not in ({50} if mode in {"budget_pilot", "budget_confirmation"} else {2, 200}):
         raise ValueError("key_count does not match the run mode")
     expected_n = [5] if mode in {"budget_pilot", "budget_confirmation"} else [1, 5, 25]
     expected_lambda = [10000.0] if mode in {"budget_pilot", "budget_confirmation"} else [10000.0, 20000.0, 50000.0]

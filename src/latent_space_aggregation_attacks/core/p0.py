@@ -372,9 +372,9 @@ def _run_stage(
         "key_ids": key_ids,
     })
     source_config = Path(config["_source_path"])
-    protocol_source = project_root / "docs/protocols/formal_protocol_v1.10.md"
+    protocol_source = project_root / f"docs/protocols/{PROTOCOL_VERSION}.md"
     shutil.copy2(source_config, run_dir / "protocol_snapshot/source_config.yaml")
-    shutil.copy2(protocol_source, run_dir / "protocol_snapshot/formal_protocol_v1.10.md")
+    shutil.copy2(protocol_source, run_dir / "protocol_snapshot" / f"{PROTOCOL_VERSION}.md")
     atomic_write_json(run_dir / "protocol_snapshot/config_resolved.json", {k: v for k, v in config.items() if not k.startswith("_")})
     atomic_write_text(run_dir / "logs/command.txt", " ".join(__import__("sys").argv) + "\n")
 
@@ -634,7 +634,8 @@ def run_p0(
     if not smoke_only:
         full_dir, _ = _run_stage(
             config=config, assets_lock=assets_lock, output_root=root, run_id=run_id,
-            key_ids=[f"pilot_key_{index:03d}" for index in range(100)], stage="p0", pipe=pipe, vae=vae,
+            key_ids=[f"pilot_key_{index:03d}" for index in range(int(config["key_count"]))],
+            stage="p0", pipe=pipe, vae=vae,
             project_root=project,
         )
         result.update(status="P0_COMPLETE", p0_dir=str(full_dir))
