@@ -1,4 +1,4 @@
-protocol_version: formal_protocol_v1.11
+protocol_version: formal_protocol_v1.12
 master_seed: 205
 run_mode: budget_pilot
 key_count: 50
@@ -18,7 +18,8 @@ detection_every: 100
 resume_every: 50
 online_detection: true
 early_stop: true
-visualization_key_ids: [pilot_key_000, pilot_key_001]
+visualization_key_ids: []
+persist_images: false
 retain_non_visualization_images: false
 reference_validity:
   selection_policy: first_accepted_from_preregistered_candidates

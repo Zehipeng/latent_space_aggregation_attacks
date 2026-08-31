@@ -1,6 +1,14 @@
 from latent_space_aggregation_attacks.core import p0
 
 
+def test_p0_layout_has_no_persistent_image_directories(tmp_path):
+    layout = p0._ensure_layout(tmp_path / "run")
+    assert (layout / "resume_state").is_dir()
+    assert not (layout / "reference_images").exists()
+    assert not (layout / "final_images_visualization_keys").exists()
+    assert not (layout / "figures").exists()
+
+
 def asset_lock():
     return {"assets":[
         {"name":"stable-diffusion-2-base","path":"/target","revision":"f5bc1bd97485577aa0b946fa8a9004e2ec147402"},
@@ -78,4 +86,5 @@ def test_reference_selection_uses_first_accepted_candidates_and_reuses_artifacts
     assert len(images2) == 2
     assert [row["reference_index"] for row in selected2] == ["1", "3"]
     assert controls2 == controls
-    assert adapter.generated == 4
+    assert adapter.generated == 6
+    assert not list(tmp_path.rglob("*.png"))

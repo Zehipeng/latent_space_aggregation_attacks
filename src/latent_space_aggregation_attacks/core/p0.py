@@ -101,9 +101,7 @@ def _bind_run_identity(path: Path, payload: dict[str, Any]) -> None:
 
 def _ensure_layout(path: Path) -> Path:
     names = (
-        "protocol_snapshot", "manifests", "logs", "checkpoints_visualization_keys",
-        "resume_state", "final_images_visualization_keys", "evaluation_spool",
-        "curve_checkpoint_spool", "evaluation", "figures",
+        "protocol_snapshot", "manifests", "logs", "resume_state",
     )
     for name in names:
         (path / name).mkdir(parents=True, exist_ok=True)
@@ -190,8 +188,6 @@ def _select_valid_references(
     selected artifacts are all recorded.  The sole selection rule is the first
     ``reference_count`` accepted candidates in the preregistered order.
     """
-    from PIL import Image
-
     group_rows = [
         row for row in control_rows
         if row["watermark"] == watermark and row["key_id"] == key_id
@@ -208,17 +204,22 @@ def _select_valid_references(
             source = rows_by_prompt.get(record["prompt_sha256"])
             if source is None or str(record["accepted"]).lower() != "true":
                 raise RuntimeError(f"Invalid persisted reference selection: {watermark}/{key_id}")
-            path = run_dir / record["image_path"]
-            if not path.is_file() or sha256_file(path) != record["image_sha256"]:
-                raise RuntimeError(f"Persisted reference image failed integrity check: {path}")
-            with Image.open(path) as image:
-                images.append(image.convert("RGB").copy())
+            image = _canonical_detection_image(
+                adapter.generate(source["prompt"], key, int(record["generation_seed"]))
+            )
+            _, image_hash = _png_payload(image)
+            detection = adapter.detect(image, key)
+            if image_hash != record["image_sha256"] or not detection.accepted:
+                raise RuntimeError(
+                    f"Regenerated reference failed validity or hash check: {watermark}/{key_id}"
+                )
+            images.append(image)
             selected_inputs.append(source)
         return images, selected_inputs, control_rows
 
     # A partial selection is deterministically rebuilt for this key.  Rows for
-    # other keys remain intact and selected reference artifacts are overwritten
-    # atomically with identical content.
+    # other keys remain intact. Selected images stay in memory; their canonical
+    # RGB8 hashes and validity scores are the persistent reproducibility record.
     control_rows = [
         row for row in control_rows
         if not (row["watermark"] == watermark and row["key_id"] == key_id)
@@ -232,15 +233,11 @@ def _select_valid_references(
         )
         image = _canonical_detection_image(adapter.generate(candidate["prompt"], key, generation_seed))
         detection = adapter.detect(image, key)
-        payload, image_hash = _png_payload(image)
+        _, image_hash = _png_payload(image)
         accepted = bool(detection.accepted)
         selected = accepted and len(selected_images) < reference_count
         selected_index: int | str = len(selected_images) if selected else ""
-        relative_path = ""
         if selected:
-            relative = Path("reference_images") / watermark / key_id / f"ref_{int(selected_index):02d}.png"
-            atomic_write_bytes(run_dir / relative, payload)
-            relative_path = relative.as_posix()
             selected_images.append(image)
             selected_inputs.append(candidate)
         control_rows.append({
@@ -252,7 +249,7 @@ def _select_valid_references(
             "generation_seed": generation_seed,
             "score": detection.score, "score_name": detection.score_name,
             "accepted": accepted, "selected": selected,
-            "image_sha256": image_hash, "image_path": relative_path,
+            "image_sha256": image_hash, "image_path": "",
         })
         _atomic_csv(control_path, control_rows, REFERENCE_CONTROL_FIELDS)
         if len(selected_images) == reference_count:
@@ -317,25 +314,6 @@ def _write_asr(rows: list[dict[str, Any]], output: Path, steps: list[int]) -> No
     ])
 
 
-def _plot_p0_curves(csv_path: Path, figure_dir: Path) -> list[Path]:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    rows = _read_csv(csv_path)
-    outputs = []
-    for task in ("forgery", "removal"):
-        figure, axis = plt.subplots(figsize=(7, 4.5))
-        for watermark, label in (("tree_ring", "Tree-Ring"), ("ringid", "RingID"), ("gaussian_shading", "Gaussian Shading")):
-            selected = [row for row in rows if row["task"] == task and row["watermark"] == watermark]
-            axis.plot([int(row["step"]) for row in selected], [float(row["cumulative_asr"]) if row["cumulative_asr"] else float("nan") for row in selected], marker="o", label=label)
-        axis.set(xlabel="Optimization step", ylabel="Cumulative ASR", ylim=(0, 1.02), title=f"P0 {task} online early-stop curve")
-        axis.grid(alpha=0.25); axis.legend(); figure.tight_layout()
-        destination = figure_dir / f"pilot_{task}_asr_curve.png"
-        figure.savefig(destination, dpi=180); plt.close(figure); outputs.append(destination)
-    return outputs
-
-
 RESULT_FIELDS = [
     "protocol_version", "run_id", "stage", "unit_id", "task", "watermark", "model_setting",
     "key_id", "eligible", "initial_score", "final_score", "score_name", "accepted_before",
@@ -394,8 +372,6 @@ def _run_stage(
     ledger_path = run_dir / "logs/unit_ledger.jsonl"
     reference_control_path = run_dir / "manifests/reference_selection_control.csv"
     reference_controls = _load_existing_rows(reference_control_path)
-    visualization_keys = set(config["visualization_key_ids"])
-
     adapters = {
         watermark: registered_adapter(watermark, _adapter_config(config, watermark, pipe, assets))
         for watermark in config["watermarks"]
@@ -499,10 +475,7 @@ def _run_stage(
                 eligible, succeeded, accepted_after = attack_success(
                     task, watermark, initial_detection.score, final_detection.score, threshold
                 )
-                png_bytes, output_hash = _png_payload(final_pil)
-                if key_id in visualization_keys:
-                    image_path = run_dir / "final_images_visualization_keys" / f"{task}_{watermark}_{key_id}.png"
-                    atomic_write_bytes(image_path, png_bytes)
+                _, output_hash = _png_payload(final_pil)
                 row = {
                     "protocol_version": PROTOCOL_VERSION, "run_id": run_id, "stage": stage,
                     "unit_id": unit_id, "task": task, "watermark": watermark,
@@ -533,10 +506,6 @@ def _run_stage(
             resume_path, expected_unit_id=str(row["unit_id"]), input_hash=str(row["input_hash"]),
             resolved_config_hash=config_hash, protocol_version=PROTOCOL_VERSION, git_sha=git_sha,
         )
-        if row["key_id"] in visualization_keys:
-            image_path = run_dir / "final_images_visualization_keys" / f"{row['task']}_{row['watermark']}_{row['key_id']}.png"
-            if sha256_file(image_path) != row["output_sha256"]:
-                raise RuntimeError(f"Smoke output hash mismatch: {image_path}")
     selected_controls = [
         row for row in reference_controls if str(row["selected"]).lower() == "true"
     ]
@@ -561,17 +530,11 @@ def _run_stage(
     )
     steps = list(range(int(config["detection_every"]), int(config["T_max"]) + 1, int(config["detection_every"])))
     _write_asr(rows, run_dir / "pilot_asr_by_step.csv", steps)
-    figures = _plot_p0_curves(run_dir / "pilot_asr_by_step.csv", run_dir / "figures")
     hashes = {
         "pilot_first_success.csv": sha256_file(result_path),
         "pilot_asr_by_step.csv": sha256_file(run_dir / "pilot_asr_by_step.csv"),
         "manifests/reference_selection_control.csv": sha256_file(reference_control_path),
         "manifests/reference_manifest.csv": sha256_file(run_dir / "manifests/reference_manifest.csv"),
-        **{
-            str(row["image_path"]): sha256_file(run_dir / str(row["image_path"]))
-            for row in selected_controls
-        },
-        **{path.relative_to(run_dir).as_posix(): sha256_file(path) for path in figures},
     }
     atomic_write_json(run_dir / ("smoke_report.json" if stage == "smoke" else "p0_run_report.json"), {
         "status": "PASSED" if stage == "smoke" else "COMPLETE", "stage": stage,
@@ -581,7 +544,8 @@ def _run_stage(
         "reference_candidates_tested": len(reference_controls),
         "valid_references_selected": len(selected_controls),
         "all_selected_references_valid": True,
-        "visualization_images_validated": expected if stage == "smoke" else len([row for row in rows if row["key_id"] in visualization_keys]),
+        "persistent_image_count": 0,
+        "visualization_images_validated": 0,
         "hashes": hashes,
     })
     checksum_lines = [f"{digest}  {name}" for name, digest in sorted(hashes.items())]

@@ -9,7 +9,8 @@ def test_p0_config_is_valid():
     assert config["N_values"] == [5]
     assert config["lambda_values"] == [10000.0]
     assert config["beta_values"] == [1.0]
-    assert config["visualization_key_ids"] == ["pilot_key_000", "pilot_key_001"]
+    assert config["visualization_key_ids"] == []
+    assert config["persist_images"] is False
     assert config["retain_non_visualization_images"] is False
     assert config["watermark_runtime"]["tree_ring"]["radius"] == 16
     assert config["reference_validity"] == {

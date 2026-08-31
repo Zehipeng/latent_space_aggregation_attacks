@@ -1,7 +1,7 @@
 # Latent Space Aggregation Attacks
 
-本项目是 `formal_protocol_v1.11` 的正式代码项目。权威协议快照位于
-`docs/protocols/formal_protocol_v1.11.md`；历史项目
+本项目是 `formal_protocol_v1.12` 的正式代码项目。权威协议快照位于
+`docs/protocols/formal_protocol_v1.12.md`；历史项目
 `jain_multiref_latent_experiment/` 只作为算法回归来源，不是正式运行入口。
 
 当前代码已实现P0预算选择的真实GPU执行链：固定revision的三种水印runtime、2-key smoke
@@ -108,7 +108,7 @@ python scripts/main_methods/run_budget_selection_pilot.py \
   --assets-lock local_assets/assets.lock.json \
   --offline \
   --smoke-only \
-  --run-id p0_v111_main
+  --run-id p0_v112_main
 ```
 
 正式启动P0时使用同一入口但移除`--smoke-only`。该命令先复用或完成匹配的2-key smoke，
@@ -119,10 +119,11 @@ python scripts/main_methods/run_budget_selection_pilot.py \
   --config configs/budget_pilot/p0.yaml \
   --assets-lock local_assets/assets.lock.json \
   --offline \
-  --run-id p0_v111_main
+  --run-id p0_v112_main
 ```
 
 中断后原样重跑同一命令和`run-id`即可续跑；完整单元直接跳过，活动单元从最近50步状态恢复。
+P0不持久保存参考PNG、攻击结果PNG或ASR曲线图片；只保留参考选择分数与图像哈希、逐单元指标、累计ASR CSV、报告、日志和临时resume状态。
 
 后续GPU验收必须依次完成：离线资产preflight、P0 2-key smoke、P0 50-key预算选择、用户提出
 `T_candidate`、50-key无检测固定预算确认、协议升级并冻结 `T_formal`、正式2-key smoke。

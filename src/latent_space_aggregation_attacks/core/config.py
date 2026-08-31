@@ -69,8 +69,8 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError("P0 requires T_max=1500 and detection_every=100")
         if not config.get("online_detection") or not config.get("early_stop"):
             raise ValueError("P0 online stage requires detection and early stopping")
-        if config.get("visualization_key_ids") != ["pilot_key_000", "pilot_key_001"]:
-            raise ValueError("P0 retains images only for pilot_key_000 and pilot_key_001")
+        if config.get("visualization_key_ids") != [] or config.get("persist_images") is not False:
+            raise ValueError("P0 must not persist reference, attack-output, or figure images")
         if config.get("retain_non_visualization_images") is not False:
             raise ValueError("P0 must clean non-visualization images after atomic result recording")
         runtime = config.get("watermark_runtime")
