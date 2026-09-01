@@ -62,11 +62,13 @@ def validate_config(config: dict[str, Any]) -> None:
     if int(config.get("resume_every", -1)) != 50:
         raise ValueError("resume_every must be 50")
     if mode in {"formal", "smoke"}:
+        if config.get("output_root") != "/root/autodl-tmp/outputs":
+            raise ValueError("formal_protocol_v1.16 output_root must be /root/autodl-tmp/outputs")
         budgets = (config.get("T_forgery_formal"), config.get("T_removal_formal"))
         if any(value in {None, "UNFROZEN"} for value in budgets):
             raise ValueError("Task-level formal budgets are not frozen; formal execution is prohibited")
         if tuple(int(value) for value in budgets) != (1500, 1500):
-            raise ValueError("formal_protocol_v1.15 requires both task budgets to equal 1500")
+            raise ValueError("formal_protocol_v1.16 requires both task budgets to equal 1500")
         if int(config.get("trajectory_every", -1)) != 100:
             raise ValueError("formal detector trajectories must use 100-step intervals")
         if float(config.get("main_beta", -1)) != 1.0:

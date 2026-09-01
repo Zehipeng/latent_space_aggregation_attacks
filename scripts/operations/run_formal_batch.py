@@ -12,7 +12,7 @@ def main() -> None:
     if args.preflight_only:
         print(json.dumps({"status":result["status"]},indent=2)); return
     raise RuntimeError(
-        "Formal protocol v1.15 budgets are frozen at 1500 steps, but the full "
+        "Formal protocol v1.16 budgets are frozen at 1500 steps, but the full "
         "smoke-to-200-key orchestration and independent evaluation chain are not "
         "implemented yet; execution remains prohibited after preflight"
     )

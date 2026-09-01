@@ -1,7 +1,7 @@
 # Latent Space Aggregation Attacks
 
-本项目是 `formal_protocol_v1.15` 的正式代码项目。权威协议快照位于
-`docs/protocols/formal_protocol_v1.15.md`；历史项目
+本项目是 `formal_protocol_v1.16` 的正式代码项目。权威协议增量快照位于
+`docs/protocols/formal_protocol_v1.16.md`，完整基线为v1.15；历史项目
 `jain_multiref_latent_experiment/` 只作为算法回归来源，不是正式运行入口。
 
 正式伪造与移除的固定预算均已冻结为1500步，移除beta网格冻结为`[1.0,1.5,2.0]`，
@@ -13,13 +13,13 @@
 攻击进程只可访问同密钥水印参考图、公开 SD1.4 代理 VAE、非配对干净图和待攻击图。
 它不得导入、初始化或调用目标检测器。正式攻击固定运行至任务级预算
 `T_forgery_formal`或`T_removal_formal`；检测与质量评价
-由独立进程在攻击完成后执行。历史P0允许在线检测并早停，但v1.15不再执行P0。
+由独立进程在攻击完成后执行。历史P0允许在线检测并早停，但v1.16不再执行P0。
 
 ## 目录
 
 - `configs/budget_pilot/`：只读保留的v1.14伪造/移除P0配置。
 - `configs/diagnostics/`：不并入P0或正式统计的预注册参数诊断。
-- `configs/formal/formal_v1p15.yaml`：冻结为双任务1500步的200-key正式配置。
+- `configs/formal/formal_v1p16.yaml`：冻结为双任务1500步的200-key正式配置。
 - `configs/smoke/`：P0或正式2-key smoke配置。
 - `src/.../core/`：配置、seed、manifest、原子I/O、ledger、resume、锁、smoke gate。
 - `src/.../data/`：200-key正式集合、50-key P0子集及嵌套参考集合。
@@ -81,6 +81,15 @@ flush/fsync和原子替换写入。COMPLETE单元经完整性校验后跳过；�
 
 ## 结果目录
 
+AutoDL统一输出根目录为`/root/autodl-tmp/outputs`。其中：
+
+- `budget_selection_pilot/`：历史P0的smoke、50-key预算曲线、首次成功步数和总结；伪造与移除物理分开。
+- `diagnostics/`：不并入P0或正式统计的参数诊断，例如beta=1.5的10-key移除诊断。
+- `launch_logs/`：启动命令、stdout/stderr、后台进程状态和退出码；日志本身不是实验结论。
+- `regression/`：新旧实现、预处理、水印生成/检测和短步优化的一致性回归报告。
+- `smoke/`：2-key门禁结果，用于验证资产、配置、恢复和评价链；不得并入200-key正式统计。
+- 后续正式实验按`outputs/<experiment_id>/<run_id>/`建立不可覆盖目录。
+
 每个run严格使用协议第11节目录。除 `evaluation_spool/` 和 `curve_checkpoint_spool/` 外，
 批量清理都必须先生成清单并获得用户授权。三项可视化key为 `key_000/key_100/key_199`。
 
@@ -98,13 +107,13 @@ flush/fsync和原子替换写入。COMPLETE单元经完整性校验后跳过；�
 
 ```bash
 python -m pytest -q
-python scripts/operations/inspect_run.py --config configs/formal/formal_v1p15.yaml
-python scripts/operations/inspect_run.py --config configs/smoke/formal_v1p15_2key.yaml
+python scripts/operations/inspect_run.py --config configs/formal/formal_v1p16.yaml
+python scripts/operations/inspect_run.py --config configs/smoke/formal_v1p16_2key.yaml
 ```
 
 ## 历史P0与诊断
 
-下列v1.14命令只用于追溯已经完成的实验，不再作为v1.15待运行流程，也不能使用v1.15代码
+下列v1.14命令只用于追溯已经完成的实验，不再作为v1.16待运行流程，也不能使用v1.16代码
 重新写入原run目录：
 
 ```bash
@@ -141,8 +150,8 @@ P0不持久保存参考PNG；参考图在需要时按预注册prompt/seed重新�
 本任务的一张累计ASR曲线。伪造失败单元保存第3000步终点；移除失败单元保存当前第15000步
 终点。两个任务的CSV和曲线不得混合。
 
-v1.15后续GPU验收从正式2-key smoke开始。smoke必须使用
-`configs/smoke/formal_v1p15_2key.yaml`并跑满1500步；通过后同一编排流程才可进入200-key正式实验。
+v1.16后续GPU验收从正式2-key smoke开始。smoke必须使用
+`configs/smoke/formal_v1p16_2key.yaml`并跑满1500步；通过后同一编排流程才可进入200-key正式实验。
 
 ## 当前明确门禁
 

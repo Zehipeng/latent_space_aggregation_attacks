@@ -19,7 +19,7 @@ def main() -> None:
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--smoke-only", action="store_true")
-    parser.add_argument("--output-root", default="../实验结果")
+    parser.add_argument("--output-root", default="../outputs")
     parser.add_argument("--run-id", default=None)
     args = parser.parse_args()
     checked = preflight(args.config, args.assets_lock, offline=args.offline)

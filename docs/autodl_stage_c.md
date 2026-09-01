@@ -100,7 +100,7 @@ python scripts/operations/run_tree_ring_regression.py \
   --config configs/budget_pilot/p0_forgery.yaml \
   --assets-lock local_assets/assets.lock.json \
   --legacy-project /root/autodl-tmp/project/jain_multiref_latent_experiment \
-  --output /root/autodl-tmp/实验结果/regression/tree_ring_v110.json \
+  --output /root/autodl-tmp/outputs/regression/tree_ring_v110.json \
   --offline
 ```
 
