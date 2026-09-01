@@ -45,7 +45,7 @@ def formal_condition_registry() -> list[Condition]:
                 for n in (1, 5, 25):
                     add(Condition("E4", task, watermark, model, "proposed", n, 10000.0, 1.0 if task == "removal" else None))
                     add(Condition("E4", task, watermark, model, "simple_averaging", n, gamma=1.0))
-            for beta in (0.5, 1.0, 2.0):
+            for beta in (1.0, 1.5, 2.0):
                 add(Condition("E5", "removal", watermark, model, "proposed", 5, 10000.0, beta))
             for transform in ("jpeg25", "crop75", "resize384", "gaussian_blur8", "gaussian_noise01"):
                 add(Condition("E6", "removal", watermark, model, "distortion", transform=transform))
@@ -53,7 +53,7 @@ def formal_condition_registry() -> list[Condition]:
 
 
 def expected_output_counts() -> dict[str, int]:
-    return {"formal_unique_outputs": 34800, "iterative_outputs": 21600, "p0_online_units": 300, "p0_confirmation_units": 300}
+    return {"formal_unique_outputs": 34800, "iterative_outputs": 21600, "p0_online_units": 0, "p0_confirmation_units": 0}
 
 
 def validate_registry_scale(conditions: list[Condition]) -> None:

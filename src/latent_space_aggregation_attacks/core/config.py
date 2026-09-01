@@ -50,7 +50,7 @@ def validate_config(config: dict[str, Any]) -> None:
     pilot_like = mode in {"budget_pilot", "budget_confirmation", "removal_diagnostic"}
     expected_n = [5] if pilot_like else [1, 5, 25]
     expected_lambda = [10000.0] if pilot_like else [10000.0, 20000.0, 50000.0]
-    expected_beta = [1.5] if mode == "removal_diagnostic" else ([1.0] if mode in {"budget_pilot", "budget_confirmation"} else [0.5, 1.0, 2.0])
+    expected_beta = [1.5] if mode == "removal_diagnostic" else ([1.0] if mode in {"budget_pilot", "budget_confirmation"} else [1.0, 1.5, 2.0])
     if config.get("N_values") != expected_n:
         raise ValueError(f"N_values must be {expected_n} for {mode}")
     if config.get("lambda_values") != expected_lambda:
@@ -65,6 +65,12 @@ def validate_config(config: dict[str, Any]) -> None:
         budgets = (config.get("T_forgery_formal"), config.get("T_removal_formal"))
         if any(value in {None, "UNFROZEN"} for value in budgets):
             raise ValueError("Task-level formal budgets are not frozen; formal execution is prohibited")
+        if tuple(int(value) for value in budgets) != (1500, 1500):
+            raise ValueError("formal_protocol_v1.15 requires both task budgets to equal 1500")
+        if int(config.get("trajectory_every", -1)) != 100:
+            raise ValueError("formal detector trajectories must use 100-step intervals")
+        if float(config.get("main_beta", -1)) != 1.0:
+            raise ValueError("formal removal main_beta must equal 1.0")
         if config.get("online_detection", False) or config.get("early_stop", False):
             raise ValueError("Formal attack must not use online detection or early stopping")
     if mode == "budget_pilot":

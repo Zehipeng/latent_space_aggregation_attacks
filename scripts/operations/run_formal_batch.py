@@ -11,5 +11,9 @@ def main() -> None:
     args=parser.parse_args(); result=preflight(args.config,args.assets_lock,offline=args.offline)
     if args.preflight_only:
         print(json.dumps({"status":result["status"]},indent=2)); return
-    raise RuntimeError("Formal execution remains gated until both task-level budgets, assets, and manifests are frozen; then this orchestrator runs 2-key smoke before 200 keys")
+    raise RuntimeError(
+        "Formal protocol v1.15 budgets are frozen at 1500 steps, but the full "
+        "smoke-to-200-key orchestration and independent evaluation chain are not "
+        "implemented yet; execution remains prohibited after preflight"
+    )
 if __name__=="__main__": main()
