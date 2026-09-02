@@ -212,19 +212,18 @@ def _recorded_smoke_timings(output_root: Path, run_id: str) -> dict[str, float]:
     return result
 
 
-def run_formal_forgery_batch(
+def run_formal_forgery(
     *, config: dict[str, Any], assets_lock: dict[str, Any], config_path: str,
     smoke_config_path: str, assets_lock_path: str, run_id: str, project_root: str | Path,
-    regression_report_path: str, batch_equivalence_report_path: str,
+    regression_report_path: str,
     smoke_only: bool, approve_full_run: bool,
 ) -> dict[str, Any]:
     project = Path(project_root).resolve()
     validate_tree_ring_regression(
         regression_report_path, config=config, assets_lock=assets_lock, project_root=project,
     )
-    validate_batch_equivalence(
-        batch_equivalence_report_path, config=config, assets_lock=assets_lock, project_root=project,
-    )
+    if config["validated_batching"]["require_equivalence_gate"]:
+        raise RuntimeError("formal_protocol_v1.18 prohibits batched formal execution")
     output_root = Path(config["output_root"])
     smoke_dir = output_root / "smoke/formal_forgery" / f"{run_id}_smoke"
     full_dir = output_root / "formal_forgery" / run_id

@@ -22,16 +22,20 @@ def test_v114_p0_and_diagnostic_configs_are_archived(path):
         load_config(path)
 
 
-def test_v117_formal_config_is_frozen_and_uses_outputs_root():
-    config = load_config(ROOT / "configs/current/formal_v1p17.yaml")
+def test_v118_formal_config_is_frozen_and_uses_scalar_execution():
+    config = load_config(ROOT / "configs/current/formal_v1p18.yaml")
     assert config["T_forgery_formal"] == 150
     assert config["T_removal_formal"] == 150
     assert config["beta_values"] == [1.0, 1.5, 2.0]
     assert config["main_beta"] == 1.0
     assert config["trajectory_every"] == 100
     assert config["output_root"] == "/root/autodl-tmp/outputs"
-    assert config["validated_batching"]["attack_batch_size"] == 4
-    assert config["validated_batching"]["inversion_batch_size"] == 8
+    assert config["validated_batching"] == {
+        "attack_batch_size": 1,
+        "inversion_batch_size": 1,
+        "reference_encode_batch_size": 1,
+        "require_equivalence_gate": False,
+    }
 
 
 def test_v114_unfrozen_formal_template_is_archived():
@@ -40,7 +44,7 @@ def test_v114_unfrozen_formal_template_is_archived():
 
 
 def test_wrong_formal_budget_is_rejected(tmp_path):
-    value = yaml.safe_load((ROOT / "configs/current/formal_v1p17.yaml").read_text(encoding="utf-8"))
+    value = yaml.safe_load((ROOT / "configs/current/formal_v1p18.yaml").read_text(encoding="utf-8"))
     value["T_forgery_formal"] = 1400
     path = tmp_path / "bad_budget.yaml"
     path.write_text(yaml.safe_dump(value), encoding="utf-8")
@@ -49,7 +53,7 @@ def test_wrong_formal_budget_is_rejected(tmp_path):
 
 
 def test_formal_online_detection_is_rejected(tmp_path):
-    value = yaml.safe_load((ROOT / "configs/current/formal_v1p17.yaml").read_text(encoding="utf-8"))
+    value = yaml.safe_load((ROOT / "configs/current/formal_v1p18.yaml").read_text(encoding="utf-8"))
     value["online_detection"] = True
     path = tmp_path / "bad.yaml"
     path.write_text(yaml.safe_dump(value), encoding="utf-8")
@@ -58,7 +62,7 @@ def test_formal_online_detection_is_rejected(tmp_path):
 
 
 def test_chinese_formal_output_root_is_rejected(tmp_path):
-    value = yaml.safe_load((ROOT / "configs/current/formal_v1p17.yaml").read_text(encoding="utf-8"))
+    value = yaml.safe_load((ROOT / "configs/current/formal_v1p18.yaml").read_text(encoding="utf-8"))
     value["output_root"] = "/root/autodl-tmp/实验结果"
     path = tmp_path / "bad_output_root.yaml"
     path.write_text(yaml.safe_dump(value, allow_unicode=True), encoding="utf-8")

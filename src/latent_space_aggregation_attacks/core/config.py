@@ -63,22 +63,22 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("resume_every must be 50")
     if mode in {"formal", "smoke"}:
         if config.get("output_root") != "/root/autodl-tmp/outputs":
-            raise ValueError("formal_protocol_v1.17 output_root must be /root/autodl-tmp/outputs")
+            raise ValueError("formal_protocol_v1.18 output_root must be /root/autodl-tmp/outputs")
         budgets = (config.get("T_forgery_formal"), config.get("T_removal_formal"))
         if any(value in {None, "UNFROZEN"} for value in budgets):
             raise ValueError("Task-level formal budgets are not frozen; formal execution is prohibited")
         if tuple(int(value) for value in budgets) != (150, 150):
-            raise ValueError("formal_protocol_v1.17 requires both task budgets to equal 150")
+            raise ValueError("formal_protocol_v1.18 requires both task budgets to equal 150")
         if int(config.get("trajectory_every", -1)) != 100:
             raise ValueError("formal detector trajectories must use 100-step intervals")
         batching = config.get("validated_batching", {})
         if batching != {
-            "attack_batch_size": 4,
-            "inversion_batch_size": 8,
-            "reference_encode_batch_size": 8,
-            "require_equivalence_gate": True,
+            "attack_batch_size": 1,
+            "inversion_batch_size": 1,
+            "reference_encode_batch_size": 1,
+            "require_equivalence_gate": False,
         }:
-            raise ValueError("formal_protocol_v1.17 validated batching settings are not locked")
+            raise ValueError("formal_protocol_v1.18 requires scalar attack, inversion and reference encoding")
         if float(config.get("main_beta", -1)) != 1.0:
             raise ValueError("formal removal main_beta must equal 1.0")
         if config.get("online_detection", False) or config.get("early_stop", False):

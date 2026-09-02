@@ -1,6 +1,6 @@
-"""Formal protocol v1.17 implementation."""
+"""Formal protocol v1.18 implementation."""
 
-PROTOCOL_VERSION = "formal_protocol_v1.17"
+PROTOCOL_VERSION = "formal_protocol_v1.18"
 # v1.13 deliberately retains the preregistered v1.9 sample allocation after
 # the partial P0 diagnostic.  Changing this namespace would silently resample
 # the pilot after outcomes had been inspected.
