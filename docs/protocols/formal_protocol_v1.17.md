@@ -16,6 +16,7 @@
 4. Final and trajectory DDIM inversions are batched up to eight images. A physical checkpoint shared by the lambda and N trajectory views is inverted once and its score is fanned out to both registered rows.
 5. Reference images are encoded in batches of eight and exact FP32 reference latents are cached by model/watermark/key/reference hashes for reuse across conditions.
 6. Formal execution requires a GPU equivalence report bound to protocol version, full Git SHA, resolved config hash, assets-lock hash, device/runtime metadata, and batch settings.
+7. The active CLI is `scripts/run_formal.py`; active configs are isolated in `configs/current/`, and the formal lifecycle is isolated in the package `formal/`. Prior configs, protocols, and P0 code are moved under `archive/` directories without changing their contents or evidence status.
 
 ## Equivalence gate
 

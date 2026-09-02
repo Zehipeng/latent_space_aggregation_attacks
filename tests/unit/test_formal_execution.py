@@ -5,10 +5,10 @@ import json
 from PIL import Image
 from scipy.linalg import sqrtm
 
-from latent_space_aggregation_attacks.core.formal_attack import _matched_noise
-from latent_space_aggregation_attacks.evaluation.formal import _cleanup_validated_spools, _detect_key_bank, _detect_key_bank_many, _fid
-from latent_space_aggregation_attacks.core.formal_common import frozen_trajectory_steps
-from latent_space_aggregation_attacks.core.formal_orchestrator import _eta_report
+from latent_space_aggregation_attacks.formal.attack import _matched_noise
+from latent_space_aggregation_attacks.formal.evaluate import _cleanup_validated_spools, _detect_key_bank, _detect_key_bank_many, _fid
+from latent_space_aggregation_attacks.formal.common import frozen_trajectory_steps
+from latent_space_aggregation_attacks.formal.orchestrator import _eta_report
 from latent_space_aggregation_attacks.models.asset_lock import validate_formal_assets
 
 

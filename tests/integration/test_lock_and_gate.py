@@ -3,7 +3,7 @@ import json
 from latent_space_aggregation_attacks.core.locking import UnitLock
 from latent_space_aggregation_attacks.core.gates import SmokeSignature,require_full_run_gate
 from latent_space_aggregation_attacks.core.hashing import stable_hash
-from latent_space_aggregation_attacks.core.formal_orchestrator import validate_batch_equivalence,validate_tree_ring_regression
+from latent_space_aggregation_attacks.formal.orchestrator import validate_batch_equivalence,validate_tree_ring_regression
 def test_worker_lock_is_exclusive(tmp_path):
     lock=tmp_path/"unit.lock"
     with UnitLock(lock):
@@ -23,7 +23,7 @@ def test_stale_worker_lock_is_recovered(tmp_path):
 
 
 def test_tree_ring_regression_is_bound_to_run_identity(tmp_path, monkeypatch):
-    import latent_space_aggregation_attacks.core.formal_orchestrator as orchestrator
+    import latent_space_aggregation_attacks.formal.orchestrator as orchestrator
     monkeypatch.setattr(orchestrator, "git_sha", lambda _: "abc123")
     config = {"resolved_config_hash": "config-hash"}
     assets = {"schema_version": 2, "assets": []}
@@ -44,7 +44,7 @@ def test_tree_ring_regression_is_bound_to_run_identity(tmp_path, monkeypatch):
 
 
 def test_batch_equivalence_gate_is_bound_to_batch_settings(tmp_path, monkeypatch):
-    import latent_space_aggregation_attacks.core.formal_orchestrator as orchestrator
+    import latent_space_aggregation_attacks.formal.orchestrator as orchestrator
     monkeypatch.setattr(orchestrator, "git_sha", lambda _: "abc123")
     batching = {
         "attack_batch_size": 4, "inversion_batch_size": 8,

@@ -19,7 +19,7 @@ def guarded_entry(description: str, stage: str) -> None:
     result = preflight(args.config, args.assets_lock, offline=args.offline)
     if args.preflight_only:
         print(json.dumps({"stage": stage, "status": result["status"]}, indent=2)); return
-    raise RuntimeError(f"{stage} requires prepared method-specific manifests and GPU assets; preflight passed but execution was not requested through run_formal_batch.py")
+    raise RuntimeError(f"{stage} requires prepared manifests and GPU assets; use scripts/run_formal.py for formal execution")
 
 
 def inspect_config_entry() -> None:

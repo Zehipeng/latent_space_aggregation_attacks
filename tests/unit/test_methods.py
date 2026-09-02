@@ -1,9 +1,9 @@
 import pytest
 torch=pytest.importorskip("torch")
-from latent_space_aggregation_attacks.methods.proposed.targets import fp32_mean,removal_target
+from latent_space_aggregation_attacks.latent_targets import fp32_mean,removal_target
 from latent_space_aggregation_attacks.methods.baselines.jain import jain_forgery_target,jain_removal_mean_image
 from latent_space_aggregation_attacks.methods.baselines.simple_averaging import estimate_pixel_direction,apply_pixel_direction
-from latent_space_aggregation_attacks.methods.proposed.optimizer import optimize_fixed_budget,optimize_fixed_budget_batch
+from latent_space_aggregation_attacks.attack import optimize_fixed_budget,optimize_fixed_budget_batch
 from latent_space_aggregation_attacks.watermarks.runtime import image_to_tensor
 def test_formal_targets():
     refs=torch.tensor([1,3,8],dtype=torch.float16).reshape(3,1,1,1); assert fp32_mean(refs).item()==4; assert jain_forgery_target(refs).item()==1

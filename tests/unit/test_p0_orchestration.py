@@ -1,4 +1,4 @@
-from latent_space_aggregation_attacks.core import p0
+from latent_space_aggregation_attacks.archive import p0_runtime as p0
 
 
 def test_p0_layout_separates_attack_outputs_from_nonpersistent_references(tmp_path):
