@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any
 
 from .base import Detection
-from .runtime import generate_from_latents, invert_image
+from .runtime import generate_from_latents, invert_image, invert_images
 
 class GaussianShadingAdapter:
     name = "gaussian_shading"
@@ -75,6 +75,9 @@ class GaussianShadingAdapter:
 
     def invert(self, image: Any) -> Any:
         return invert_image(self.pipe, image, steps=self.inversion_steps)
+
+    def invert_many(self, images: list[Any]) -> Any:
+        return invert_images(self.pipe, images, steps=self.inversion_steps)
 
     def detect_inverted(self, inverted: Any, key: Any) -> Detection:
         recovered = self._recover_message(inverted, key)

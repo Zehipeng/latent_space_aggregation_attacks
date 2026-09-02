@@ -21,7 +21,7 @@ from latent_space_aggregation_attacks.watermarks.base import registered_adapter
 
 from ..core.atomic_io import atomic_write_json, atomic_write_text
 from ..core.formal_common import (
-    adapter_config, assets_by_name, atomic_csv, canonical_512, formal_inputs, model_config,
+    adapter_config, assets_by_name, atomic_csv, canonical_512, formal_inputs, frozen_trajectory_steps, model_config,
     open_rgb, read_csv, threshold,
 )
 from ..core.hashing import sha256_file, stable_hash
@@ -143,6 +143,15 @@ def _detect_key_bank(adapter: Any, image: Any, keys: dict[str, Any]) -> dict[str
     """Invert an image once, then score every registered identity."""
     inverted = adapter.invert(image)
     return {key_id: adapter.detect_inverted(inverted, key) for key_id, key in keys.items()}
+
+
+def _detect_key_bank_many(adapter: Any, images: list[Any], keys: dict[str, Any]) -> list[dict[str, Any]]:
+    """Batch-invert independent images, then score each against the full key bank."""
+    inverted = adapter.invert_many(images)
+    return [
+        {key_id: adapter.detect_inverted(inverted[index:index + 1], key) for key_id, key in keys.items()}
+        for index in range(len(images))
+    ]
 
 
 def _trajectory_factor(row: dict[str, str]) -> list[tuple[str, str]]:
@@ -348,7 +357,9 @@ def _main_statistics(rows: list[dict[str, Any]], output: Path) -> Path:
     return output
 
 
-def _diagnostic_tables(rows: list[dict[str, Any]], summaries: list[dict[str, Any]], output: Path) -> list[Path]:
+def _diagnostic_tables(
+    rows: list[dict[str, Any]], summaries: list[dict[str, Any]], output: Path, *, budget: int,
+) -> list[Path]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         grouped[row["condition_id"]].append(row)
@@ -392,8 +403,8 @@ def _diagnostic_tables(rows: list[dict[str, Any]], summaries: list[dict[str, Any
         costs.append({
             "Watermark": row["Watermark"], "Model": row["Model"], "Method": row["Method"],
             "ReferenceCount": row["N"], "ProxyVAERequired": iterative,
-            "OptimizationSteps": 1500 if iterative else 0,
-            "ApproximateOptimizationVAECalls": 1500 if iterative else 0,
+            "OptimizationSteps": budget if iterative else 0,
+            "ApproximateOptimizationVAECalls": budget if iterative else 0,
             "MeanAttackTimeSeconds": row["attack_compute_time"],
             "OnlineDetectorQueries": 0, "EarlyStopping": False,
         })
@@ -510,6 +521,8 @@ def evaluate_formal_forgery(
     }
     evaluation_durations: list[float] = []
     visited_outputs = 0
+    final_inversion_images = 0
+    trajectory_unique_inversions = 0
     atomic_write_text(root / "logs/evaluation_command.txt", " ".join(__import__("sys").argv) + "\n")
     for model_setting in config["model_settings"]:
         pipe = load_target_pipeline(model_config(assets, model_setting), offline=True)
@@ -522,16 +535,64 @@ def evaluate_formal_forgery(
                 if row["model_setting"] == model_setting and row["watermark"] == watermark
             ]
             initial_cache: dict[str, Any] = {}
+            inversion_batch_size = int(config["validated_batching"]["inversion_batch_size"])
+            source_key_ids = sorted({
+                row["key_id"] for row in selected
+                if (row["condition_id"], row["key_id"]) not in completed_final
+            })
+            for offset in range(0, len(source_key_ids), inversion_batch_size):
+                batch_keys = source_key_ids[offset:offset + inversion_batch_size]
+                sources = [canonical_512(open_rgb(target_by_key[key_id]["path"])) for key_id in batch_keys]
+                inverted = adapter.invert_many(sources)
+                for index, key_id in enumerate(batch_keys):
+                    initial_cache[key_id] = adapter.detect_inverted(inverted[index:index + 1], keys[key_id])
+            final_detection_cache: dict[tuple[str, str], dict[str, Any]] = {}
+            pending_final = [
+                row for row in selected
+                if (row["condition_id"], row["key_id"]) not in completed_final
+            ]
+            for offset in range(0, len(pending_final), inversion_batch_size):
+                batch_rows = pending_final[offset:offset + inversion_batch_size]
+                images = [open_rgb(root / row["output_image_path"]) for row in batch_rows]
+                detections = _detect_key_bank_many(adapter, images, keys)
+                final_inversion_images += len(batch_rows)
+                for row, value in zip(batch_rows, detections):
+                    final_detection_cache[(row["condition_id"], row["key_id"])] = value
+            trajectory_detection_cache: dict[tuple[str, str, int], Any] = {}
+            trajectory_work: list[tuple[dict[str, str], int, Path]] = []
+            for row in selected:
+                factors = _trajectory_factor(row)
+                if not factors:
+                    continue
+                for step in frozen_trajectory_steps(
+                    int(config["T_forgery_formal"]), int(config["trajectory_every"])
+                ):
+                    missing = [
+                        (factor_name, factor_value) for factor_name, factor_value in factors
+                        if (row["condition_id"], row["key_id"], factor_name, factor_value, step)
+                        not in completed_trajectory
+                    ]
+                    if missing:
+                        checkpoint = root / "curve_checkpoint_spool" / row["condition_id"] / row["key_id"] / f"step_{step:04d}.png"
+                        if not checkpoint.is_file():
+                            raise FileNotFoundError(checkpoint)
+                        trajectory_work.append((row, step, checkpoint))
+            for offset in range(0, len(trajectory_work), inversion_batch_size):
+                work = trajectory_work[offset:offset + inversion_batch_size]
+                inverted = adapter.invert_many([open_rgb(path) for _, _, path in work])
+                trajectory_unique_inversions += len(work)
+                for index, (row, step, _) in enumerate(work):
+                    trajectory_detection_cache[(row["condition_id"], row["key_id"], step)] = adapter.detect_inverted(
+                        inverted[index:index + 1], keys[row["key_id"]]
+                    )
             for row in selected:
                 evaluation_unit_started = time.perf_counter()
                 key_id = row["key_id"]
                 source = canonical_512(open_rgb(target_by_key[key_id]["path"]))
                 attacked = open_rgb(root / row["output_image_path"])
                 if (row["condition_id"], key_id) not in completed_final:
-                    if key_id not in initial_cache:
-                        initial_cache[key_id] = adapter.detect(source, keys[key_id])
                     initial = initial_cache[key_id]
-                    detections = _detect_key_bank(adapter, attacked, keys)
+                    detections = final_detection_cache[(row["condition_id"], key_id)]
                     final = detections[key_id]
                     scores = {other: detection.score for other, detection in detections.items()}
                     wrong = wrong_identity_metrics(
@@ -558,16 +619,17 @@ def evaluate_formal_forgery(
                         final_rows[-1],
                     )
                 unit_trajectory_rows: list[dict[str, Any]] = []
-                for factor_name, factor_value in _trajectory_factor(row):
-                    checkpoint_dir = root / "curve_checkpoint_spool" / row["condition_id"] / key_id
-                    for step in range(0, int(config["T_forgery_formal"]) + 1, int(config["trajectory_every"])):
-                        checkpoint = checkpoint_dir / f"step_{step:04d}.png"
-                        if not checkpoint.is_file():
-                            raise FileNotFoundError(checkpoint)
+                factors = _trajectory_factor(row)
+                for step in frozen_trajectory_steps(
+                    int(config["T_forgery_formal"]), int(config["trajectory_every"])
+                ) if factors else []:
+                    detected = trajectory_detection_cache.get((row["condition_id"], key_id, step))
+                    for factor_name, factor_value in factors:
                         trajectory_identity = (row["condition_id"], key_id, factor_name, factor_value, step)
                         if trajectory_identity in completed_trajectory:
                             continue
-                        detected = adapter.detect(open_rgb(checkpoint), keys[key_id])
+                        if detected is None:
+                            raise RuntimeError(f"Missing deduplicated trajectory detection: {row['condition_id']}|{key_id}|{step}")
                         trajectory_record = {
                             "protocol_version": PROTOCOL_VERSION, "run_id": run_id,
                             "condition_id": row["condition_id"], "task": "forgery",
@@ -583,7 +645,10 @@ def evaluate_formal_forgery(
                 if unit_trajectory_rows:
                     atomic_write_json(
                         trajectory_unit_dir / f"{stable_hash(row['condition_id'] + '|' + key_id)}.json",
-                        unit_trajectory_rows,
+                        [
+                            value for value in trajectory_rows
+                            if value["condition_id"] == row["condition_id"] and value["key_id"] == key_id
+                        ],
                     )
                 visited_outputs += 1
                 evaluation_durations.append(time.perf_counter() - evaluation_unit_started)
@@ -599,7 +664,9 @@ def evaluate_formal_forgery(
         raise RuntimeError(f"Final evaluation produced {len(final_rows)} rows; expected {expected}")
     if len({(row["condition_id"], row["key_id"]) for row in final_rows}) != expected:
         raise RuntimeError("Final evaluation contains duplicate or missing condition/key rows")
-    steps_per_unit = int(config["T_forgery_formal"]) // int(config["trajectory_every"]) + 1
+    steps_per_unit = len(frozen_trajectory_steps(
+        int(config["T_forgery_formal"]), int(config["trajectory_every"])
+    ))
     expected_trajectory = (
         len(config["model_settings"]) * len(config["watermarks"]) * 6
         * len(key_ids) * steps_per_unit
@@ -618,7 +685,9 @@ def evaluate_formal_forgery(
     atomic_csv(root / "evaluation/final_condition_summary.csv", summaries)
     table_paths = _paper_tables(summaries, root / "evaluation/tables")
     statistics_path = _main_statistics(final_rows, root / "evaluation/statistical_tests.csv")
-    diagnostic_paths = _diagnostic_tables(final_rows, summaries, root / "evaluation")
+    diagnostic_paths = _diagnostic_tables(
+        final_rows, summaries, root / "evaluation", budget=int(config["T_forgery_formal"])
+    )
     trajectory_summary = _summarize_trajectories(trajectory_rows)
     atomic_csv(trajectory_path, trajectory_rows, TRAJECTORY_FIELDS)
     atomic_csv(root / "evaluation/detector_trajectory_summary.csv", trajectory_summary, TRAJECTORY_SUMMARY_FIELDS)
@@ -652,7 +721,7 @@ def evaluate_formal_forgery(
             f"- 完整性检查：持久结果文件写入`checksums.sha256`后才清理临时spool\n"
             f"- 异常：无未处理异常\n\n"
             "## 结论边界\n\n"
-            "本文件只确认formal_protocol_v1.16伪造批次计算与完整性链完成。"
+            f"本文件只确认{PROTOCOL_VERSION}伪造批次计算与完整性链完成。"
             "各水印、模型和方法的正式数值及统计不确定性必须从上述CSV、统计附表和固定表格读取；"
             "不得把历史P0、移除诊断或E7随机噪声控制计入主方法ASR排名。\n"
         ))
@@ -687,6 +756,11 @@ def evaluate_formal_forgery(
     report = {
         "status": status, "run_id": run_id, "key_count": len(key_ids),
         "final_row_count": len(final_rows), "trajectory_row_count": len(trajectory_rows),
+        "final_inversion_image_count": len(final_rows),
+        "trajectory_unique_inversion_count": len({
+            (row["condition_id"], row["key_id"], int(row["step"])) for row in trajectory_rows
+        }),
+        "validated_batching": config["validated_batching"],
         "spool_cleanup_status": "PENDING", "hashes": hashes,
     }
     atomic_write_json(report_path, report)

@@ -98,6 +98,29 @@ def validate_tree_ring_regression(
     return report
 
 
+def validate_batch_equivalence(
+    report_path: str | Path, *, config: dict[str, Any], assets_lock: dict[str, Any],
+    project_root: str | Path,
+) -> dict[str, Any]:
+    path = Path(report_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Batch equivalence report is required: {path}")
+    report = json.loads(path.read_text(encoding="utf-8"))
+    expected = {
+        "status": "PASSED", "protocol_version": PROTOCOL_VERSION,
+        "git_sha": git_sha(project_root),
+        "source_resolved_config_hash": config["resolved_config_hash"],
+        "assets_lock_hash": stable_hash(assets_lock),
+        "validated_batching": config["validated_batching"],
+    }
+    mismatches = {key: (report.get(key), value) for key, value in expected.items() if report.get(key) != value}
+    if mismatches:
+        raise RuntimeError(f"Batch equivalence report does not match this formal run: {mismatches}")
+    if report.get("failures"):
+        raise RuntimeError(f"Batch equivalence report contains failures: {report['failures']}")
+    return report
+
+
 def _read_manifest_identity(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     recorded = value.pop("manifest_hash", None)
@@ -131,7 +154,7 @@ def _eta_report(smoke_dir: Path, timings: dict[str, float], output: Path) -> dic
     generated_at = datetime.now(timezone.utc)
     full_primary_outputs = 13_200
     full_e7_outputs = 13_200
-    full_trajectory_rows = 115_200
+    full_trajectory_rows = 21_600
     report = {
         "status": "ESTIMATED_AWAITING_FULL_RUN_APPROVAL",
         "protocol_version": PROTOCOL_VERSION,
@@ -143,6 +166,8 @@ def _eta_report(smoke_dir: Path, timings: dict[str, float], output: Path) -> dic
             "torch_cuda_version": phase_runtime["attack"]["torch_cuda_version"],
             "python_version": phase_runtime["attack"]["python_version"],
             "parallel_workers": 1,
+            "attack_batch_size": 4,
+            "inversion_batch_size": 8,
         },
         "stage_measurements": phase_runtime,
         "formal_stage_counts": {
@@ -190,11 +215,15 @@ def _recorded_smoke_timings(output_root: Path, run_id: str) -> dict[str, float]:
 def run_formal_forgery_batch(
     *, config: dict[str, Any], assets_lock: dict[str, Any], config_path: str,
     smoke_config_path: str, assets_lock_path: str, run_id: str, project_root: str | Path,
-    regression_report_path: str, smoke_only: bool, approve_full_run: bool,
+    regression_report_path: str, batch_equivalence_report_path: str,
+    smoke_only: bool, approve_full_run: bool,
 ) -> dict[str, Any]:
     project = Path(project_root).resolve()
     validate_tree_ring_regression(
         regression_report_path, config=config, assets_lock=assets_lock, project_root=project,
+    )
+    validate_batch_equivalence(
+        batch_equivalence_report_path, config=config, assets_lock=assets_lock, project_root=project,
     )
     output_root = Path(config["output_root"])
     smoke_dir = output_root / "smoke/formal_forgery" / f"{run_id}_smoke"

@@ -91,6 +91,36 @@ def invert_image(pipe: Any, image: Any, *, steps: int = 50, size: int = 512) -> 
         pipe.scheduler = original_scheduler
 
 
+def invert_images(pipe: Any, images: list[Any], *, steps: int = 50, size: int = 512) -> Any:
+    """DDIM-invert independent images in one batch using the exact scalar schedule."""
+    import torch
+    from diffusers import DDIMInverseScheduler
+
+    if not images:
+        raise ValueError("invert_images requires at least one image")
+    original_scheduler = pipe.scheduler
+    try:
+        scheduler_config = dict(original_scheduler.config)
+        scheduler_config.pop("skip_prk_steps", None)
+        pipe.scheduler = DDIMInverseScheduler.from_config(scheduler_config)
+        tensors = [image_to_tensor(image, size=size, device=pipe.device, dtype=pipe.vae.dtype) for image in images]
+        tensor = torch.cat(tensors, dim=0)
+        with torch.inference_mode():
+            image_latents = pipe.vae.encode(tensor).latent_dist.mode() * (
+                1.0 / float(pipe.vae.config.scaling_factor)
+            )
+            prompts = [""] * len(images)
+            return pipe(
+                prompt=prompts,
+                latents=image_latents,
+                guidance_scale=1.0,
+                num_inference_steps=int(steps),
+                output_type="latent",
+            ).images.float()
+    finally:
+        pipe.scheduler = original_scheduler
+
+
 def ncx2_p_value(inverted_fft: Any, target_fft: Any, mask: Any) -> float:
     import torch
     from scipy import stats

@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any
 
 from .base import Detection
-from .runtime import generate_from_latents, invert_image, ncx2_p_value, prepare_random_latents
+from .runtime import generate_from_latents, invert_image, invert_images, ncx2_p_value, prepare_random_latents
 
 class RingIDAdapter:
     name = "ringid"
@@ -126,6 +126,9 @@ class RingIDAdapter:
 
     def invert(self, image: Any) -> Any:
         return invert_image(self.pipe, image, steps=self.inversion_steps)
+
+    def invert_many(self, images: list[Any]) -> Any:
+        return invert_images(self.pipe, images, steps=self.inversion_steps)
 
     def detect_inverted(self, inverted: Any, key: Any) -> Detection:
         import torch

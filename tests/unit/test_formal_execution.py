@@ -6,7 +6,8 @@ from PIL import Image
 from scipy.linalg import sqrtm
 
 from latent_space_aggregation_attacks.core.formal_attack import _matched_noise
-from latent_space_aggregation_attacks.evaluation.formal import _cleanup_validated_spools, _detect_key_bank, _fid
+from latent_space_aggregation_attacks.evaluation.formal import _cleanup_validated_spools, _detect_key_bank, _detect_key_bank_many, _fid
+from latent_space_aggregation_attacks.core.formal_common import frozen_trajectory_steps
 from latent_space_aggregation_attacks.core.formal_orchestrator import _eta_report
 from latent_space_aggregation_attacks.models.asset_lock import validate_formal_assets
 
@@ -80,8 +81,8 @@ def test_eta_report_retains_cleaned_spool_peak_and_runtime_metadata(tmp_path):
         writer = csv.DictWriter(handle, fieldnames=["final_step", "optimization_compute_time"])
         writer.writeheader()
         writer.writerows([
-            {"final_step": 1500, "optimization_compute_time": 2.0},
-            {"final_step": 1500, "optimization_compute_time": 4.0},
+            {"final_step": 150, "optimization_compute_time": 2.0},
+            {"final_step": 150, "optimization_compute_time": 4.0},
             {"final_step": 0, "optimization_compute_time": 0.1},
         ])
     logs = tmp_path / "logs"
@@ -117,3 +118,21 @@ def test_wrong_key_bank_reuses_one_image_inversion():
     result = _detect_key_bank(adapter, 3, {"a": 1, "b": 2, "c": 3})
     assert result == {"a": 7, "b": 8, "c": 9}
     assert adapter.inversions == 1
+
+
+def test_v117_trajectory_keeps_non_interval_final_step():
+    assert frozen_trajectory_steps(150, 100) == [0, 100, 150]
+
+
+def test_batch_wrong_key_bank_uses_one_batch_inversion():
+    class Adapter:
+        calls = 0
+        def invert_many(self, images):
+            self.calls += 1
+            return np.asarray(images)[:, None]
+        def detect_inverted(self, inverted, key):
+            return int(inverted[0, 0]) + key
+    adapter = Adapter()
+    result = _detect_key_bank_many(adapter, [3, 4], {"a": 1, "b": 2})
+    assert result == [{"a": 4, "b": 5}, {"a": 5, "b": 6}]
+    assert adapter.calls == 1

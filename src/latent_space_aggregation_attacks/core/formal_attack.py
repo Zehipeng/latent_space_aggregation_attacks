@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import time
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -10,15 +12,17 @@ from latent_space_aggregation_attacks.methods.baselines.jain import jain_forgery
 from latent_space_aggregation_attacks.methods.baselines.simple_averaging import (
     apply_pixel_direction, estimate_pixel_direction,
 )
-from latent_space_aggregation_attacks.methods.proposed.optimizer import optimize_fixed_budget
+from latent_space_aggregation_attacks.methods.proposed.optimizer import (
+    optimize_fixed_budget, optimize_fixed_budget_batch,
+)
 from latent_space_aggregation_attacks.methods.proposed.targets import forgery_target
 from latent_space_aggregation_attacks.models.loaders import load_proxy_vae
 
-from .atomic_io import atomic_write_json, atomic_write_text
+from .atomic_io import atomic_write_bytes, atomic_write_json, atomic_write_text
 from .conditions import conditions_for_task
 from .formal_common import (
     assets_by_name, atomic_csv, atomic_png, canonical_512, ensure_run_layout, formal_inputs,
-    git_sha, model_config, open_rgb, read_csv,
+    frozen_trajectory_steps, git_sha, model_config, open_rgb, read_csv,
 )
 from .hashing import sha256_file, stable_hash
 from .ledger import LedgerEvent, append_event
@@ -75,15 +79,66 @@ def _tensor_pil(image: Any) -> Any:
     return Image.fromarray(array.astype(np.uint8), mode="RGB")
 
 
-def _encode(vae: Any, images: list[Any]) -> Any:
+def _encode(vae: Any, images: list[Any], *, batch_size: int) -> Any:
     import torch
     device, dtype = next(vae.parameters()).device, next(vae.parameters()).dtype
     latents = []
     with torch.inference_mode():
-        for image in images:
-            tensor = _image_tensor(image, device=device, dtype=dtype)
+        for offset in range(0, len(images), batch_size):
+            tensor = torch.cat([
+                _image_tensor(image, device=device, dtype=dtype)
+                for image in images[offset:offset + batch_size]
+            ])
             latents.append(vae.encode(tensor).latent_dist.mode() * (1.0 / float(vae.config.scaling_factor)))
     return torch.cat(latents)
+
+
+def _cached_reference_latents(
+    *, root: Path, vae: Any, images: list[Any], selected_rows: list[dict[str, str]],
+    model_setting: str, watermark: str, key_id: str, batch_size: int,
+) -> Any:
+    """Reuse exact FP32 reference latents across lambda/N conditions."""
+    import torch
+
+    identities = []
+    paths = []
+    for row in selected_rows:
+        identity = stable_hash({
+            "model_setting": model_setting, "watermark": watermark, "key_id": key_id,
+            "reference_sha256": row["image_sha256"],
+            "preprocess": "rgb_bicubic_short_edge_512_center_crop_minus1_plus1",
+        })
+        identities.append(identity)
+        paths.append(root / "reference_latent_cache" / f"{identity}.pt")
+    values: list[Any | None] = [None] * len(images)
+    missing = []
+    for index, path in enumerate(paths):
+        if path.is_file():
+            try:
+                payload = torch.load(path, map_location="cpu")
+            except Exception:
+                payload = {}
+            value = payload.get("latent") if isinstance(payload, dict) else None
+            if (
+                isinstance(payload, dict) and payload.get("identity") == identities[index]
+                and value is not None and value.dtype == torch.float32
+                and int(value.shape[0]) == 1
+            ):
+                values[index] = value
+                continue
+        missing.append(index)
+    for offset in range(0, len(missing), batch_size):
+        indices = missing[offset:offset + batch_size]
+        encoded = _encode(vae, [images[index] for index in indices], batch_size=len(indices)).detach().float().cpu()
+        for local_index, image_index in enumerate(indices):
+            value = encoded[local_index:local_index + 1]
+            payload = io.BytesIO()
+            torch.save({"identity": identities[image_index], "latent": value}, payload)
+            atomic_write_bytes(paths[image_index], payload.getvalue())
+            values[image_index] = value
+    if any(value is None for value in values):
+        raise RuntimeError("Reference latent cache construction is incomplete")
+    return torch.cat(values).to(device=next(vae.parameters()).device, dtype=next(vae.parameters()).dtype)
 
 
 def _simple_average(source: Any, references: list[Any], clean: list[Any]) -> Any:
@@ -127,6 +182,167 @@ def _reference_rows(run_dir: Path) -> dict[tuple[str, str, str], list[dict[str, 
     for rows in grouped.values():
         rows.sort(key=lambda row: int(row["selected_reference_index"]))
     return grouped
+
+
+def _run_iterative_condition_batches(
+    *, condition: Any, key_ids: list[str], completed: set[str], root: Path,
+    target_by_key: dict[str, dict[str, str]], clean_by_key: dict[str, list[dict[str, str]]],
+    references_by_group: dict[tuple[str, str, str], list[dict[str, str]]], vae: Any,
+    config: dict[str, Any], config_hash: str, sha: str, run_id: str, ledger_path: Path,
+    unit_record_dir: Path, visualization_keys: set[str], rows: list[dict[str, Any]], total: int,
+) -> None:
+    """Execute one iterative condition in independent, resume-compatible batches."""
+    import torch
+
+    device, dtype = next(vae.parameters()).device, next(vae.parameters()).dtype
+    budget = int(config["T_forgery_formal"])
+    batch_size = int(config["validated_batching"]["attack_batch_size"])
+    reference_batch_size = int(config["validated_batching"]["reference_encode_batch_size"])
+    candidates: list[dict[str, Any]] = []
+    for key_id in key_ids:
+        preparation_started = time.perf_counter()
+        unit_id = condition.id + "|" + key_id
+        if unit_id in completed:
+            continue
+        target_row = target_by_key[key_id]
+        source = canonical_512(open_rgb(target_row["path"]))
+        reference_rows = references_by_group[(condition.model_setting, condition.watermark, key_id)]
+        n = int(condition.N or 1)
+        selected_rows = reference_rows[:n]
+        references = [open_rgb(root / row["image_path"]) for row in selected_rows]
+        clean_rows = clean_by_key[key_id][:n]
+        seed = derive_seed("worker", "formal", unit_id)
+        input_hash = stable_hash({
+            "condition": condition.id, "key_id": key_id,
+            "target_sha256": target_row.get("sha256"),
+            "reference_sha256": [row["image_sha256"] for row in selected_rows],
+            "clean_sha256": [row.get("sha256") for row in clean_rows],
+        })
+        source_tensor = _image_tensor(source, device=device, dtype=dtype)
+        reference_latents = _cached_reference_latents(
+            root=root, vae=vae, images=references, selected_rows=selected_rows,
+            model_setting=condition.model_setting, watermark=condition.watermark,
+            key_id=key_id, batch_size=reference_batch_size,
+        )
+        target_latent = (
+            jain_forgery_target(reference_latents)
+            if condition.method == "jain" else forgery_target(reference_latents)
+        )
+        resume_path = root / "resume_state" / f"{stable_hash(unit_id)}.pkl"
+        start_step, current, history, prior_time = 0, source_tensor, [], 0.0
+        if resume_path.is_file():
+            try:
+                state = load_resume_state(
+                    resume_path, expected_unit_id=unit_id, input_hash=input_hash,
+                    resolved_config_hash=config_hash, protocol_version=PROTOCOL_VERSION, git_sha=sha,
+                )
+                start_step, current, history = state.step, state.image_tensor, state.loss_history
+                prior_time = float(state.timing.get("optimization_compute_time", 0.0))
+                append_event(ledger_path, LedgerEvent(unit_id, "RUNNING", f"resumed_from_step={start_step}"))
+            except (FileNotFoundError, ValueError) as exc:
+                append_event(ledger_path, LedgerEvent(unit_id, "RUNNING", f"corrupt_resume_restart={exc}"))
+                seed_runtime(seed, torch)
+        else:
+            seed_runtime(seed, torch)
+        candidates.append({
+            "unit_id": unit_id, "key_id": key_id, "target_row": target_row,
+            "source_tensor": source_tensor, "target_latent": target_latent,
+            "selected_rows": selected_rows, "clean_rows": clean_rows,
+            "seed": seed, "input_hash": input_hash, "resume_path": resume_path,
+            "start_step": start_step, "current": current, "history": history,
+            "prior_time": prior_time,
+            "preparation_time": time.perf_counter() - preparation_started,
+            "started": 0.0,
+        })
+    for start_step in sorted({item["start_step"] for item in candidates}):
+        group = [item for item in candidates if item["start_step"] == start_step]
+        for offset in range(0, len(group), batch_size):
+            batch = group[offset:offset + batch_size]
+            with ExitStack() as stack:
+                for item in batch:
+                    item["started"] = time.perf_counter()
+                    stack.enter_context(UnitLock(root / "logs/locks" / f"{stable_hash(item['unit_id'])}.lock"))
+                    append_event(ledger_path, LedgerEvent(item["unit_id"], "RUNNING", f"batch_size={len(batch)}"))
+                callback_started = time.perf_counter()
+                checkpoint_callbacks = []
+                curve_callbacks = []
+                visualization_callbacks = []
+                for item in batch:
+                    def checkpoint(step: int, image: Any, history: list[dict[str, Any]], item: dict[str, Any] = item) -> None:
+                        elapsed = item["prior_time"] + (time.perf_counter() - callback_started) / len(batch)
+                        save_resume_state(item["resume_path"], ResumeState(
+                            unit_id=item["unit_id"], step=step, image_tensor=image.detach().cpu(),
+                            loss_history=history, rng_state=capture_rng_state(torch),
+                            timing={"optimization_compute_time": elapsed}, input_hash=item["input_hash"],
+                            resolved_config_hash=config_hash, protocol_version=PROTOCOL_VERSION, git_sha=sha,
+                        ))
+                    checkpoint_callbacks.append(checkpoint)
+                    trajectory = condition.method == "proposed"
+                    def curve(step: int, image: Any, item: dict[str, Any] = item) -> None:
+                        atomic_png(
+                            root / "curve_checkpoint_spool" / condition.id / item["key_id"] / f"step_{step:04d}.png",
+                            _tensor_pil(image),
+                        )
+                    curve_callbacks.append(curve if trajectory else None)
+                    def visualize(step: int, image: Any, item: dict[str, Any] = item) -> None:
+                        atomic_png(
+                            root / "checkpoints_visualization_keys" / condition.id / item["key_id"] / f"step_{step:04d}.png",
+                            _tensor_pil(image),
+                        )
+                    visualization_callbacks.append(visualize if item["key_id"] in visualization_keys else None)
+                    if trajectory and start_step == 0:
+                        curve(0, item["source_tensor"])
+                result = optimize_fixed_budget_batch(
+                    torch.cat([item["source_tensor"] for item in batch]),
+                    torch.cat([item["target_latent"] for item in batch]), vae,
+                    lambda_pixels=[float(condition.lambda_pixel)] * len(batch),
+                    learning_rate=float(config["learning_rate"]), final_step=budget,
+                    start_step=start_step,
+                    current_images=torch.cat([item["current"] for item in batch]),
+                    original_images=torch.cat([item["source_tensor"] for item in batch]),
+                    histories=[item["history"] for item in batch],
+                    checkpoint_callbacks=checkpoint_callbacks,
+                    curve_callbacks=curve_callbacks,
+                    visualization_callbacks=visualization_callbacks,
+                )
+                amortized_time = result.optimization_compute_time / len(batch)
+                for index, item in enumerate(batch):
+                    image = result.images[index:index + 1]
+                    compute_time = item["prior_time"] + amortized_time
+                    save_resume_state(item["resume_path"], ResumeState(
+                        unit_id=item["unit_id"], step=result.final_step, image_tensor=image.detach().cpu(),
+                        loss_history=result.loss_histories[index], rng_state=capture_rng_state(torch),
+                        timing={"optimization_compute_time": compute_time}, input_hash=item["input_hash"],
+                        resolved_config_hash=config_hash, protocol_version=PROTOCOL_VERSION, git_sha=sha,
+                    ))
+                    final_pil = _tensor_pil(image)
+                    relative = Path("evaluation_spool") / condition.id / f"{item['key_id']}.png"
+                    output_hash = atomic_png(root / relative, final_pil)
+                    if item["key_id"] in visualization_keys:
+                        atomic_png(root / "final_images_visualization_keys" / condition.id / f"{item['key_id']}.png", final_pil)
+                    row = {
+                        "protocol_version": PROTOCOL_VERSION, "run_id": run_id,
+                        "condition_id": condition.id, "experiment": condition.experiment,
+                        "task": "forgery", "watermark": condition.watermark,
+                        "model_setting": condition.model_setting, "method": condition.method,
+                        "key_id": item["key_id"], "target_id": item["target_row"].get("image_id", item["key_id"]),
+                        "reference_ids": ";".join(value["image_sha256"] for value in item["selected_rows"]),
+                        "clean_ids": ";".join(value.get("image_id", "") for value in item["clean_rows"]),
+                        "N": int(condition.N or 1), "lambda": condition.lambda_pixel,
+                        "beta": "", "gamma": "", "seed": item["seed"],
+                        "final_step": result.final_step, "optimization_compute_time": compute_time,
+                        "input_hash": item["input_hash"],
+                        "unit_wall_time": item["preparation_time"] + time.perf_counter() - item["started"],
+                        "output_sha256": output_hash, "output_image_path": relative.as_posix(),
+                        "control_parent_condition_id": "", "matched_parent_l2_preclip": "",
+                        "matched_control_l2_postclip": "", "matched_control_linf_postclip": "",
+                    }
+                    rows.append(row)
+                    atomic_write_json(unit_record_dir / f"{stable_hash(item['unit_id'])}.json", row)
+                    append_event(ledger_path, LedgerEvent(item["unit_id"], "COMPLETE", f"batch_size={len(batch)}"))
+                    completed.add(item["unit_id"])
+                    _write_attack_progress(root, rows, total)
+            torch.cuda.empty_cache()
 
 
 def run_formal_forgery_attack(
@@ -209,6 +425,17 @@ def run_formal_forgery_attack(
     budget = int(config["T_forgery_formal"])
     visualization_keys = set(config["visualization_key_ids"])
     for condition in conditions:
+        if condition.method in {"jain", "proposed"}:
+            _run_iterative_condition_batches(
+                condition=condition, key_ids=key_ids, completed=completed, root=root,
+                target_by_key=target_by_key, clean_by_key=clean_by_key,
+                references_by_group=references_by_group, vae=vae, config=config,
+                config_hash=config_hash, sha=sha, run_id=run_id, ledger_path=ledger_path,
+                unit_record_dir=unit_record_dir, visualization_keys=visualization_keys,
+                rows=rows, total=total_with_e7,
+            )
+            atomic_csv(results_path, rows, ATTACK_FIELDS)
+            continue
         for key_id in key_ids:
             unit_id = condition.id + "|" + key_id
             if unit_id in completed:
@@ -239,7 +466,7 @@ def run_formal_forgery_attack(
                     compute_time = time.perf_counter() - started
                 else:
                     source_tensor = _image_tensor(source, device=device, dtype=dtype)
-                    reference_latents = _encode(vae, references)
+                    reference_latents = _encode(vae, references, batch_size=1)
                     target_latent = (
                         jain_forgery_target(reference_latents)
                         if condition.method == "jain" else forgery_target(reference_latents)
@@ -346,7 +573,7 @@ def run_formal_forgery_attack(
             raise RuntimeError("Simple Averaging must be recorded as a non-iterative method")
         if row["method"] == "proposed":
             checkpoints = list((root / "curve_checkpoint_spool" / row["condition_id"] / row["key_id"]).glob("step_*.png"))
-            expected_checkpoints = budget // int(config["trajectory_every"]) + 1
+            expected_checkpoints = len(frozen_trajectory_steps(budget, int(config["trajectory_every"])))
             if len(checkpoints) != expected_checkpoints:
                 raise RuntimeError(
                     f"Trajectory spool is incomplete for {row['condition_id']}|{row['key_id']}: "
@@ -406,6 +633,8 @@ def run_formal_forgery_attack(
         "status": "ATTACK_COMPLETE", "run_id": run_id, "unit_count": expected,
         "e7_control_unit_count": expected, "total_output_count": len(all_rows),
         "trajectory_checkpoint_count": trajectory_files,
+        "validated_batching": config["validated_batching"],
+        "reference_latent_cache_file_count": len(list((root / "reference_latent_cache").glob("*.pt"))),
     }
     atomic_write_json(attack_report_path, report)
     return report

@@ -33,6 +33,16 @@ WATERMARK_ASSET_NAMES = {
 }
 
 
+def frozen_trajectory_steps(budget: int, every: int) -> list[int]:
+    """Return registered interval checkpoints plus the frozen final budget."""
+    if budget <= 0 or every <= 0:
+        raise ValueError("trajectory budget and interval must be positive")
+    steps = list(range(0, budget + 1, every))
+    if steps[-1] != budget:
+        steps.append(budget)
+    return steps
+
+
 def git_sha(project_root: str | Path) -> str:
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=project_root, check=True,

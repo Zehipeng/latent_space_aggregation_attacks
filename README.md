@@ -1,10 +1,10 @@
 # Latent Space Aggregation Attacks
 
-本项目是 `formal_protocol_v1.16` 的正式代码项目。权威协议增量快照位于
-`docs/protocols/formal_protocol_v1.16.md`，完整基线为v1.15；历史项目
+本项目是 `formal_protocol_v1.17` 的正式代码项目。权威协议增量快照位于
+`docs/protocols/formal_protocol_v1.17.md`，其基线为v1.16；历史项目
 `jain_multiref_latent_experiment/` 只作为算法回归来源，不是正式运行入口。
 
-正式伪造与移除的固定预算均已冻结为1500步，移除beta网格冻结为`[1.0,1.5,2.0]`，
+正式伪造与移除的固定预算均已冻结为150步，移除beta网格冻结为`[1.0,1.5,2.0]`，
 主设置为`beta=1.0`。用户已取消后续P0与50-key固定预算确认；v1.14的P0和诊断配置及
 结果只读保留，不并入正式统计。正式批次仍必须先通过同配置2-key smoke。
 
@@ -13,13 +13,13 @@
 攻击进程只可访问同密钥水印参考图、公开 SD1.4 代理 VAE、非配对干净图和待攻击图。
 它不得导入、初始化或调用目标检测器。正式攻击固定运行至任务级预算
 `T_forgery_formal`或`T_removal_formal`；检测与质量评价
-由独立进程在攻击完成后执行。历史P0允许在线检测并早停，但v1.16不再执行P0。
+由独立进程在攻击完成后执行。历史P0允许在线检测并早停，但v1.17不再执行P0。
 
 ## 目录
 
 - `configs/budget_pilot/`：只读保留的v1.14伪造/移除P0配置。
 - `configs/diagnostics/`：不并入P0或正式统计的预注册参数诊断。
-- `configs/formal/formal_v1p16.yaml`：冻结为双任务1500步的200-key正式配置。
+- `configs/formal/formal_v1p17.yaml`：冻结为双任务150步、batch attack=4、batch inversion=8的200-key正式配置。
 - `configs/smoke/`：P0或正式2-key smoke配置。
 - `src/.../core/`：配置、seed、manifest、原子I/O、ledger、resume、锁、smoke gate。
 - `src/.../data/`：200-key正式集合、50-key P0子集及嵌套参考集合。
@@ -53,6 +53,7 @@
 | `operations/build_prompt_manifest.py` | 从锁定的 Gustavosta train parquet 构造互不重叠的 P0/正式 64-candidate banks | parquet、固定SHA-256 | 19200行提示词manifest |
 | `operations/build_coco_manifests.py` | 从val2017构造P0/正式目标、clean-prior及角色重叠审计 | val2017、instances JSON | 五份CSV manifest |
 | `operations/run_tree_ring_regression.py` | 在GPU上用相同输入比较新旧Tree-Ring、预处理、目标与10步优化 | 新资产锁、只读旧项目 | JSON等价性报告 |
+| `operations/run_batch_equivalence_gate.py` | 在正式GPU上比较标量与批量攻击/反演/检测 | v1.17 config、资产锁 | 与SHA/config/assets/batch参数绑定的JSON门禁报告 |
 | `operations/estimate_runtime.py` | P50/P90 ETA与磁盘预算输入检查 | 实测记录 | ETA JSON/报告 |
 | `operations/inspect_run.py` | 只读检查配置 | config | 协议/hash/规模 |
 | `operations/build_cleanup_inventory.py` | 仅生成dry-run清理清单 | run目录 | JSON清单，不删除 |
@@ -65,6 +66,9 @@
 - Jain移除：目标图全局像素均值构成的常量图，经同一代理VAE编码。
 - Simple Averaging：RGB域非配对均值差，`gamma=1`。
 - 优化：单阶段、element-wise mean MSE、无动量像素梯度下降、学习率0.02。
+- v1.17批量优化：每个样本分别计算latent/pixel mean loss，乘各自lambda后对样本loss求和；因此每个样本梯度定义与batch=1一致。正式attack batch固定4。
+- v1.17批量评价：每批最多8张图共享一次DDIM调度执行，但逐图、逐key独立评分；`N=5,lambda=1e4`重叠轨迹检查点只反演一次并分发到两个因子视图。
+- 参考latent缓存以模型设置、水印、key、参考图SHA-256和预处理契约为键，只保存FP32张量；不同哈希绝不复用。
 
 ## 离线资产准备
 
@@ -107,8 +111,8 @@ AutoDL统一输出根目录为`/root/autodl-tmp/outputs`。其中：
 
 ```bash
 python -m pytest -q
-python scripts/operations/inspect_run.py --config configs/formal/formal_v1p16.yaml
-python scripts/operations/inspect_run.py --config configs/smoke/formal_v1p16_2key.yaml
+python scripts/operations/inspect_run.py --config configs/formal/formal_v1p17.yaml
+python scripts/operations/inspect_run.py --config configs/smoke/formal_v1p17_2key.yaml
 ```
 
 ## 正式伪造运行
@@ -121,21 +125,32 @@ python scripts/operations/inspect_run.py --config configs/smoke/formal_v1p16_2ke
 
 ```bash
 python scripts/operations/run_tree_ring_regression.py \
-  --config configs/formal/formal_v1p16.yaml \
+  --config configs/formal/formal_v1p17.yaml \
   --assets-lock local_assets/assets.lock.json \
   --legacy-project /root/autodl-tmp/project/jain_multiref_latent_experiment_legacy \
-  --output /root/autodl-tmp/outputs/regression/tree_ring_v1p16.json \
+  --output /root/autodl-tmp/outputs/regression/tree_ring_v1p17.json \
   --offline
 ```
 
-报告必须为`PASSED`，且Git、配置和资产锁哈希会由正式编排器再次核对。然后运行smoke：
+随后运行批量等价性门禁；它必须在正式使用的GPU上完成：
+
+```bash
+python scripts/operations/run_batch_equivalence_gate.py \
+  --config configs/formal/formal_v1p17.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --output /root/autodl-tmp/outputs/regression/batch_equivalence_v1p17.json \
+  --offline
+```
+
+两份报告必须为`PASSED`，且Git、配置、资产锁和批量参数会由正式编排器再次核对。然后运行smoke：
 
 ```bash
 python scripts/operations/run_formal_batch.py \
-  --config configs/formal/formal_v1p16.yaml \
-  --smoke-config configs/smoke/formal_v1p16_2key.yaml \
+  --config configs/formal/formal_v1p17.yaml \
+  --smoke-config configs/smoke/formal_v1p17_2key.yaml \
   --assets-lock local_assets/assets.lock.json \
-  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p16.json \
+  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p17.json \
+  --batch-equivalence-report /root/autodl-tmp/outputs/regression/batch_equivalence_v1p17.json \
   --task forgery \
   --run-id <run_id> \
   --offline \
@@ -147,10 +162,11 @@ python scripts/operations/run_formal_batch.py \
 
 ```bash
 python scripts/operations/run_formal_batch.py \
-  --config configs/formal/formal_v1p16.yaml \
-  --smoke-config configs/smoke/formal_v1p16_2key.yaml \
+  --config configs/formal/formal_v1p17.yaml \
+  --smoke-config configs/smoke/formal_v1p17_2key.yaml \
   --assets-lock local_assets/assets.lock.json \
-  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p16.json \
+  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p17.json \
+  --batch-equivalence-report /root/autodl-tmp/outputs/regression/batch_equivalence_v1p17.json \
   --task forgery \
   --run-id <run_id> \
   --offline \
@@ -164,7 +180,7 @@ python scripts/operations/run_formal_batch.py \
 
 ## 历史P0与诊断
 
-下列v1.14命令只用于追溯已经完成的实验，不再作为v1.16待运行流程，也不能使用v1.16代码
+下列v1.14命令只用于追溯已经完成的实验，不再作为v1.17待运行流程，也不能使用v1.17代码
 重新写入原run目录：
 
 ```bash
@@ -201,8 +217,8 @@ P0不持久保存参考PNG；参考图在需要时按预注册prompt/seed重新�
 本任务的一张累计ASR曲线。伪造失败单元保存第3000步终点；移除失败单元保存当前第15000步
 终点。两个任务的CSV和曲线不得混合。
 
-v1.16 GPU验收从正式2-key smoke开始。smoke使用
-`configs/smoke/formal_v1p16_2key.yaml`并跑满1500步；通过、审阅ETA并显式批准后，
+v1.17 GPU验收先运行批量等价性门禁，再进入正式2-key smoke。smoke使用
+`configs/smoke/formal_v1p17_2key.yaml`并跑满150步；通过、审阅ETA并显式批准后，
 同一编排流程才可进入200-key正式实验。
 
 ## 当前明确门禁
@@ -211,7 +227,7 @@ v1.16 GPU验收从正式2-key smoke开始。smoke使用
 Gaussian Shading官方ChaCha20变体及FPR=`1e-6`对应的bit-accuracy阈值。每个key和水印
 从64个预注册有序候选中选择最先通过正式阈值的25张参考，并持久记录全部已测试候选及
 选中图像哈希；不足25张时批次失败。启动时同时核对三种官方代码revision。正式配置中的
-`T_forgery_formal/T_removal_formal`必须均为1500，移除beta网格必须为`[1.0,1.5,2.0]`。
+`T_forgery_formal/T_removal_formal`必须均为150，移除beta网格必须为`[1.0,1.5,2.0]`。
 
 `run_formal_batch.py`已接通正式伪造的准备、三方法攻击、独立最终/错误密钥/质量/FID评价、
 Proposed轨迹、表图、统计、恢复和smoke门禁。实际GPU smoke通过前不得启动200-key；正式移除
