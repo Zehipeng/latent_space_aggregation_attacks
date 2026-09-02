@@ -210,7 +210,7 @@ v1.19 GPU验收先运行Tree-Ring回归门禁，再进入正式2-key smoke。smo
 Gaussian Shading官方ChaCha20变体及FPR=`1e-6`对应的bit-accuracy阈值。每个key和水印
 从64个预注册有序候选中选择最先通过正式阈值的25张参考，并持久记录全部已测试候选及
 选中图像哈希；不足25张时批次失败。启动时同时核对三种官方代码revision。正式配置中的
-`T_forgery_formal/T_removal_formal`必须均为150，移除beta网格必须为`[1.0,1.5,2.0]`。
+`T_forgery_formal/T_removal_formal`必须均为150，移除beta网格必须为`[1.0,1.5,2.0]`，正式移除主设置必须为`main_beta=1.5`。
 
 `scripts/run_formal.py`已接通正式伪造的准备、三方法攻击、独立最终/错误密钥/质量/FID评价、
 Proposed轨迹、表图、统计、恢复和smoke门禁。实际GPU smoke通过前不得启动200-key；正式移除
