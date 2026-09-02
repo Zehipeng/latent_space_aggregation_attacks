@@ -51,10 +51,14 @@ def optimize_fixed_budget(
     device = next(vae.parameters()).device
     dtype = next(vae.parameters()).dtype
     original_source = image if original_image is None else original_image
-    original = original_source.to(device=device, dtype=dtype).detach()
+    # Reference latents are deliberately encoded under inference_mode to avoid
+    # building graphs.  PyTorch inference tensors cannot be saved for a later
+    # backward pass, so clone all optimizer inputs outside inference_mode to
+    # turn them into ordinary tensors at this boundary.
+    original = original_source.to(device=device, dtype=dtype).clone().detach()
     current_source = image if current_image is None else current_image
     current = current_source.to(device=device, dtype=dtype).clone().detach()
-    target = target_latent.to(device=device, dtype=dtype).detach()
+    target = target_latent.to(device=device, dtype=dtype).clone().detach()
     records = list(history or [])
     vae.eval().requires_grad_(False)
     started = time.perf_counter()
@@ -126,9 +130,9 @@ def optimize_fixed_budget_batch(
     dtype = next(vae.parameters()).dtype
     original_source = images if original_images is None else original_images
     current_source = images if current_images is None else current_images
-    original = original_source.to(device=device, dtype=dtype).detach()
+    original = original_source.to(device=device, dtype=dtype).clone().detach()
     current = current_source.to(device=device, dtype=dtype).clone().detach()
-    targets = target_latents.to(device=device, dtype=dtype).detach()
+    targets = target_latents.to(device=device, dtype=dtype).clone().detach()
     records = [list(value) for value in (histories or [[] for _ in range(batch_size)])]
     if len(records) != batch_size:
         raise ValueError("one loss history is required per batch sample")

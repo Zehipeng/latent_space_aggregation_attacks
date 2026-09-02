@@ -98,6 +98,37 @@ def test_batched_optimizer_matches_independent_scalar_updates():
     assert [history[-1]["step"] for history in actual.loss_histories] == [3, 3]
 
 
+def test_optimizers_accept_targets_created_in_inference_mode():
+    class Distribution:
+        def __init__(self, value): self.value = value
+        def mode(self): return self.value
+    class Encoded:
+        def __init__(self, value): self.latent_dist = Distribution(value)
+    class VAE(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.anchor = torch.nn.Parameter(torch.tensor(0.0))
+            self.config = type("Config", (), {"scaling_factor": 1.0})()
+        def encode(self, value): return Encoded(value * 1.7 + self.anchor * 0)
+
+    vae = VAE()
+    images = torch.tensor([[[[0.1, -0.2]]], [[[0.3, 0.4]]]])
+    with torch.inference_mode():
+        targets = vae.encode(images.roll(1, 0)).latent_dist.mode()
+
+    scalar = optimize_fixed_budget(
+        images[0:1], targets[0:1], vae,
+        lambda_pixel=1.0, learning_rate=0.02, final_step=1,
+    )
+    batched = optimize_fixed_budget_batch(
+        images, targets, vae, lambda_pixels=[1.0, 1.0],
+        learning_rate=0.02, final_step=1,
+    )
+
+    assert scalar.final_step == 1
+    assert batched.final_step == 1
+
+
 def test_pil_preprocessing_matches_short_side_resize_and_center_crop():
     from PIL import Image
     import numpy as np
