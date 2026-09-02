@@ -7,6 +7,12 @@ def test_registry_is_deduplicated_and_counts_are_locked():
     assert expected_output_counts()["p0_confirmation_units"]==0
     beta_values = sorted({c.beta for c in conditions if c.task == "removal" and c.method == "proposed" and c.N == 5 and c.lambda_pixel == 10000.0})
     assert beta_values == [1.0, 1.5, 2.0]
+    main_removal = [c for c in conditions if c.experiment == "E2" and c.method == "proposed"]
+    assert main_removal and {c.beta for c in main_removal} == {1.5}
+    lambda_removal = [c for c in conditions if c.experiment == "E3" and c.task == "removal" and c.method == "proposed"]
+    assert lambda_removal and {c.beta for c in lambda_removal} == {1.5}
+    n_removal = [c for c in conditions if c.experiment == "E4" and c.task == "removal" and c.method == "proposed"]
+    assert n_removal and {c.beta for c in n_removal} == {1.5}
 
 def test_forgery_registry_and_smoke_counts_are_config_aware():
     conditions = conditions_for_task("forgery")

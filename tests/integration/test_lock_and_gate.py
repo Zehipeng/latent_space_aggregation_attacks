@@ -28,7 +28,7 @@ def test_tree_ring_regression_is_bound_to_run_identity(tmp_path, monkeypatch):
     config = {"resolved_config_hash": "config-hash"}
     assets = {"schema_version": 2, "assets": []}
     report = {
-        "status": "PASSED", "protocol_version": "formal_protocol_v1.18",
+        "status": "PASSED", "protocol_version": "formal_protocol_v1.19",
         "git_sha": "abc123", "source_resolved_config_hash": "config-hash",
         "assets_lock_hash": stable_hash(assets),
     }
@@ -53,7 +53,7 @@ def test_batch_equivalence_gate_is_bound_to_batch_settings(tmp_path, monkeypatch
     config = {"resolved_config_hash": "config-hash", "validated_batching": batching}
     assets = {"schema_version": 2, "assets": []}
     report = {
-        "status": "PASSED", "protocol_version": "formal_protocol_v1.18",
+        "status": "PASSED", "protocol_version": "formal_protocol_v1.19",
         "git_sha": "abc123", "source_resolved_config_hash": "config-hash",
         "assets_lock_hash": stable_hash(assets), "validated_batching": batching,
         "failures": [],

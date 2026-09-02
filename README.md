@@ -1,11 +1,11 @@
 # Latent Space Aggregation Attacks
 
-本项目是 `formal_protocol_v1.18` 的正式代码项目。权威协议增量快照位于
-`docs/protocols/formal_protocol_v1.18.md`，其基线为v1.17；历史项目
+本项目是 `formal_protocol_v1.19` 的正式代码项目。权威协议增量快照位于
+`docs/protocols/formal_protocol_v1.19.md`，其基线为v1.18；历史项目
 `jain_multiref_latent_experiment/` 只作为算法回归来源，不是正式运行入口。
 
 正式伪造与移除的固定预算均已冻结为150步，移除beta网格冻结为`[1.0,1.5,2.0]`，
-主设置为`beta=1.0`。用户已取消后续P0与50-key固定预算确认；v1.14的P0和诊断配置及
+主设置为`beta=1.5`。用户已取消后续P0与50-key固定预算确认；v1.14的P0和诊断配置及
 结果只读保留，不并入正式统计。正式批次仍必须先通过同配置2-key smoke。
 
 ## 威胁模型
@@ -13,17 +13,17 @@
 攻击进程只可访问同密钥水印参考图、公开 SD1.4 代理 VAE、非配对干净图和待攻击图。
 它不得导入、初始化或调用目标检测器。正式攻击固定运行至任务级预算
 `T_forgery_formal`或`T_removal_formal`；检测与质量评价
-由独立进程在攻击完成后执行。历史P0允许在线检测并早停，但v1.18不再执行P0。
+由独立进程在攻击完成后执行。历史P0允许在线检测并早停，但v1.19不再执行P0。
 
 ## 目录
 
-- `configs/current/`：唯一当前配置；含v1.18正式与2-key smoke。
+- `configs/current/`：唯一当前配置；含v1.19正式与2-key smoke。
 - `configs/archive/`：v1.15/v1.16、P0、诊断和模板配置，只读保留。
 - `src/.../attack.py`：标量与批量固定预算攻击优化器，主攻击函数的最浅入口。
 - `src/.../latent_targets.py`：Proposed伪造/移除latent目标定义。
 - `src/.../formal/`：正式生命周期，固定为`prepare → attack → evaluate → orchestrate`。
 - `src/.../core/`：仅保留配置、seed、manifest、原子I/O、ledger、resume、锁和门禁等通用基础设施。
-- `src/.../archive/`：历史P0运行时，只读且不进入v1.18正式路径。
+- `src/.../archive/`：历史P0运行时，只读且不进入v1.19正式路径。
 - `src/.../data/`：200-key正式集合、50-key P0子集及嵌套参考集合。
 - `src/.../models/`：离线资产锁和本地模型加载。
 - `src/.../watermarks/`：Tree-Ring、RingID、Gaussian Shading统一接口。
@@ -31,7 +31,7 @@
 - `src/.../evaluation/`：通用指标、错误身份、资格、统计与spool校验；正式评价入口在`formal/evaluate.py`。
 - `src/.../plotting/`：固定列结构和五张2×3轨迹图。
 - `scripts/run_formal.py`：唯一正式运行入口。
-- `scripts/validate_tree_ring.py`：正式GPU回归门禁。`validate_batching.py`仅用于追溯v1.17失败门禁，不属于v1.18启动链。
+- `scripts/validate_tree_ring.py`：正式GPU回归门禁。`validate_batching.py`仅用于追溯v1.17失败门禁，不属于v1.19启动链。
 - `scripts/operations/`：资产与manifest准备、检查和清理清单工具。
 - `scripts/archive/`：历史P0入口和未接线占位脚本；不属于当前运行路径。
 
@@ -45,7 +45,7 @@
 | `operations/build_prompt_manifest.py` | 从锁定的 Gustavosta train parquet 构造互不重叠的 P0/正式 64-candidate banks | parquet、固定SHA-256 | 19200行提示词manifest |
 | `operations/build_coco_manifests.py` | 从val2017构造P0/正式目标、clean-prior及角色重叠审计 | val2017、instances JSON | 五份CSV manifest |
 | `validate_tree_ring.py` | 在GPU上用相同输入比较新旧Tree-Ring、预处理、目标与10步优化 | 新资产锁、只读旧项目 | JSON等价性报告 |
-| `validate_batching.py` | 追溯v1.17标量与批量失败门禁 | 归档v1.17 config、资产锁 | 历史诊断JSON，不进入v1.18门禁 |
+| `validate_batching.py` | 追溯v1.17标量与批量失败门禁 | 归档v1.17 config、资产锁 | 历史诊断JSON，不进入v1.19门禁 |
 | `operations/estimate_runtime.py` | P50/P90 ETA与磁盘预算输入检查 | 实测记录 | ETA JSON/报告 |
 | `operations/inspect_run.py` | 只读检查配置 | config | 协议/hash/规模 |
 | `operations/build_cleanup_inventory.py` | 仅生成dry-run清理清单 | run目录 | JSON清单，不删除 |
@@ -61,7 +61,7 @@
 - Jain移除：目标图全局像素均值构成的常量图，经同一代理VAE编码。
 - Simple Averaging：RGB域非配对均值差，`gamma=1`。
 - 优化：单阶段、element-wise mean MSE、无动量像素梯度下降、学习率0.02。
-- v1.18标量执行：攻击优化、DDIM反演和参考VAE编码的batch size均固定为1。v1.17的FP16真批量设置未通过GPU等价性门禁，不得用于v1.18。
+- v1.19沿用v1.18确定的标量执行：攻击优化、DDIM反演和参考VAE编码的batch size均固定为1。v1.17的FP16真批量设置未通过GPU等价性门禁，不得用于v1.19。
 - `N=5,lambda=1e4`重叠轨迹检查点只做一次标量反演并将同一结果登记到两个因子视图；这属于去重，不属于批量数值计算。
 - 参考latent缓存以模型设置、水印、key、参考图SHA-256和预处理契约为键，只保存FP32张量；不同哈希绝不复用。
 
@@ -106,8 +106,8 @@ AutoDL统一输出根目录为`/root/autodl-tmp/outputs`。其中：
 
 ```bash
 python -m pytest -q
-python scripts/operations/inspect_run.py --config configs/current/formal_v1p18.yaml
-python scripts/operations/inspect_run.py --config configs/current/smoke_v1p18_2key.yaml
+python scripts/operations/inspect_run.py --config configs/current/formal_v1p19.yaml
+python scripts/operations/inspect_run.py --config configs/current/smoke_v1p19_2key.yaml
 ```
 
 ## 正式伪造运行
@@ -120,10 +120,10 @@ python scripts/operations/inspect_run.py --config configs/current/smoke_v1p18_2k
 
 ```bash
 python scripts/validate_tree_ring.py \
-  --config configs/current/formal_v1p18.yaml \
+  --config configs/current/formal_v1p19.yaml \
   --assets-lock local_assets/assets.lock.json \
   --legacy-project /root/autodl-tmp/project/jain_multiref_latent_experiment_legacy \
-  --output /root/autodl-tmp/outputs/regression/tree_ring_v1p18.json \
+  --output /root/autodl-tmp/outputs/regression/tree_ring_v1p19.json \
   --offline
 ```
 
@@ -131,10 +131,10 @@ python scripts/validate_tree_ring.py \
 
 ```bash
 python scripts/run_formal.py \
-  --config configs/current/formal_v1p18.yaml \
-  --smoke-config configs/current/smoke_v1p18_2key.yaml \
+  --config configs/current/formal_v1p19.yaml \
+  --smoke-config configs/current/smoke_v1p19_2key.yaml \
   --assets-lock local_assets/assets.lock.json \
-  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p18.json \
+  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p19.json \
   --task forgery \
   --run-id <run_id> \
   --offline \
@@ -146,10 +146,10 @@ python scripts/run_formal.py \
 
 ```bash
 python scripts/run_formal.py \
-  --config configs/current/formal_v1p18.yaml \
-  --smoke-config configs/current/smoke_v1p18_2key.yaml \
+  --config configs/current/formal_v1p19.yaml \
+  --smoke-config configs/current/smoke_v1p19_2key.yaml \
   --assets-lock local_assets/assets.lock.json \
-  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p18.json \
+  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p19.json \
   --task forgery \
   --run-id <run_id> \
   --offline \
@@ -200,8 +200,8 @@ P0不持久保存参考PNG；参考图在需要时按预注册prompt/seed重新�
 本任务的一张累计ASR曲线。伪造失败单元保存第3000步终点；移除失败单元保存当前第15000步
 终点。两个任务的CSV和曲线不得混合。
 
-v1.18 GPU验收先运行Tree-Ring回归门禁，再进入正式2-key smoke。smoke使用
-`configs/current/smoke_v1p18_2key.yaml`以逐张方式跑满150步；通过、审阅ETA并显式批准后，
+v1.19 GPU验收先运行Tree-Ring回归门禁，再进入正式2-key smoke。smoke使用
+`configs/current/smoke_v1p19_2key.yaml`以逐张方式跑满150步；通过、审阅ETA并显式批准后，
 同一编排流程才可进入200-key正式实验。
 
 ## 当前明确门禁

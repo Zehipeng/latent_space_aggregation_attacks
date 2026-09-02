@@ -1,11 +1,11 @@
 # Project structure
 
-The repository separates the active v1.18 execution path from historical material.
+The repository separates the active v1.19 execution path from historical material.
 
 ```text
 latent_space_aggregation_attacks/
 ├─ configs/
-│  ├─ current/                 # only runnable v1.18 formal/smoke configs
+│  ├─ current/                 # only runnable v1.19 formal/smoke configs
 │  ├─ assets/                  # AutoDL inventory template
 │  └─ archive/                 # v1.15/v1.16, P0, diagnostics, templates
 ├─ scripts/
@@ -31,7 +31,7 @@ latent_space_aggregation_attacks/
 │  └─ archive/                 # historical P0 runtime
 ├─ tests/                      # active and archived-path regression tests
 └─ docs/
-   ├─ protocols/               # current v1.18 snapshot
+   ├─ protocols/               # current v1.19 snapshot
    │  └─ archive/              # immutable prior snapshots
    └─ archive/                 # obsolete operational notes
 ```
@@ -54,10 +54,10 @@ loading the package.
 ## Current commands
 
 ```bash
-python scripts/operations/inspect_run.py --config configs/current/formal_v1p18.yaml
+python scripts/operations/inspect_run.py --config configs/current/formal_v1p19.yaml
 python scripts/validate_tree_ring.py --help
 python scripts/validate_batching.py --help
 python scripts/run_formal.py --help
 ```
 
-Anything under an `archive/` directory is excluded from the v1.18 formal path.
+Anything under an `archive/` directory is excluded from the v1.19 formal path.

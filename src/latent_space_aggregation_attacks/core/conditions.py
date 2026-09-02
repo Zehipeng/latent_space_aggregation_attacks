@@ -38,12 +38,12 @@ def formal_condition_registry() -> list[Condition]:
             for task in tasks:
                 add(Condition("E1" if task == "forgery" else "E2", task, watermark, model, "jain", 1, 10000.0))
                 add(Condition("E1" if task == "forgery" else "E2", task, watermark, model, "simple_averaging", 5, gamma=1.0))
-                add(Condition("E1" if task == "forgery" else "E2", task, watermark, model, "proposed", 5, 10000.0, 1.0 if task == "removal" else None))
+                add(Condition("E1" if task == "forgery" else "E2", task, watermark, model, "proposed", 5, 10000.0, 1.5 if task == "removal" else None))
                 for lam in (10000.0, 20000.0, 50000.0):
                     for method in ("jain", "proposed"):
-                        add(Condition("E3", task, watermark, model, method, 1 if method == "jain" else 5, lam, 1.0 if task == "removal" and method == "proposed" else None))
+                        add(Condition("E3", task, watermark, model, method, 1 if method == "jain" else 5, lam, 1.5 if task == "removal" and method == "proposed" else None))
                 for n in (1, 5, 25):
-                    add(Condition("E4", task, watermark, model, "proposed", n, 10000.0, 1.0 if task == "removal" else None))
+                    add(Condition("E4", task, watermark, model, "proposed", n, 10000.0, 1.5 if task == "removal" else None))
                     add(Condition("E4", task, watermark, model, "simple_averaging", n, gamma=1.0))
             for beta in (1.0, 1.5, 2.0):
                 add(Condition("E5", "removal", watermark, model, "proposed", 5, 10000.0, beta))
