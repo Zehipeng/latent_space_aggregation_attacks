@@ -75,6 +75,19 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError("formal removal main_beta must equal 1.0")
         if config.get("online_detection", False) or config.get("early_stop", False):
             raise ValueError("Formal attack must not use online detection or early stopping")
+        if config.get("formal_tasks") != ["forgery", "removal"]:
+            raise ValueError("Formal configuration must register forgery and removal in order")
+        if config.get("visualization_key_ids") != ["key_000", "key_100", "key_199"]:
+            raise ValueError("Formal visualization keys are protocol-locked")
+        validity = config.get("reference_validity", {})
+        if (
+            validity.get("selection_policy") != "first_accepted_from_preregistered_candidates"
+            or int(validity.get("candidate_limit", 0)) != 64
+            or int(validity.get("selected_count", 0)) != 25
+            or validity.get("require_all_selected_accepted") is not True
+        ):
+            raise ValueError("Formal references require the first 25 accepted of 64 candidates")
+        _validate_watermark_runtime(config.get("watermark_runtime"))
     if mode == "budget_pilot":
         tasks = config.get("tasks")
         if tasks not in (["forgery"], ["removal"]):
@@ -143,3 +156,24 @@ def validate_config(config: dict[str, Any]) -> None:
             or validity.get("require_all_selected_accepted") is not True
         ):
             raise ValueError("Removal diagnostic reference validity policy is not protocol-locked")
+
+
+def _validate_watermark_runtime(runtime: Any) -> None:
+    if not isinstance(runtime, dict) or set(runtime) != WATERMARKS:
+        raise ValueError("All watermark runtime settings must be explicit")
+    tree = runtime["tree_ring"]
+    if (
+        int(tree.get("channel", -1)) != 0
+        or int(tree.get("radius", -1)) != 16
+        or float(tree.get("p_value_threshold", -1)) != 0.05
+    ):
+        raise ValueError("Tree-Ring runtime must use channel=0, radius=16 and p<=0.05")
+    if float(runtime["ringid"].get("p_value_threshold", -1)) != 0.05:
+        raise ValueError("RingID runtime must use p<=0.05")
+    gaussian = runtime["gaussian_shading"]
+    if (
+        gaussian.get("cipher") != "chacha20"
+        or float(gaussian.get("fpr", -1)) != 1e-6
+        or float(gaussian.get("bit_accuracy_threshold", -1)) != 0.6484375
+    ):
+        raise ValueError("Gaussian Shading runtime must use ChaCha20 and the FPR=1e-6 threshold")

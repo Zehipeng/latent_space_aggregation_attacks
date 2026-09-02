@@ -13,6 +13,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from latent_space_aggregation_attacks.core.atomic_io import atomic_write_json
+from latent_space_aggregation_attacks.core.formal_common import git_sha
+from latent_space_aggregation_attacks.core.hashing import stable_hash
 from latent_space_aggregation_attacks.core.p0 import _assets_by_name, _encode, _open_rgb
 from latent_space_aggregation_attacks.core.preflight import preflight
 from latent_space_aggregation_attacks.core.seeds import configure_torch_determinism
@@ -135,6 +137,11 @@ def main() -> None:
 
     report = {
         "status": "PASSED",
+        "protocol_version": config["protocol_version"],
+        "git_sha": git_sha(PROJECT_ROOT),
+        "legacy_git_sha": git_sha(legacy_root),
+        "source_resolved_config_hash": config["resolved_config_hash"],
+        "assets_lock_hash": stable_hash(checked["assets"]),
         "tree_ring": {"channel": 0, "radius": 16},
         "torch_determinism": determinism,
         "key_max_abs": key_max_abs,

@@ -52,8 +52,23 @@ def formal_condition_registry() -> list[Condition]:
     return list(unique.values())
 
 
-def expected_output_counts() -> dict[str, int]:
-    return {"formal_unique_outputs": 34800, "iterative_outputs": 21600, "p0_online_units": 0, "p0_confirmation_units": 0}
+def conditions_for_task(task: str) -> list[Condition]:
+    if task not in {"forgery", "removal"}:
+        raise ValueError(f"Unsupported formal task: {task}")
+    return [condition for condition in formal_condition_registry() if condition.task == task]
+
+
+def expected_output_counts(*, key_count: int = 200, task: str | None = None) -> dict[str, int]:
+    conditions = formal_condition_registry()
+    if task is not None:
+        conditions = [condition for condition in conditions if condition.task == task]
+    iterative = sum(condition.method in {"jain", "proposed"} for condition in conditions)
+    return {
+        "formal_unique_outputs": len(conditions) * key_count,
+        "iterative_outputs": iterative * key_count,
+        "p0_online_units": 0,
+        "p0_confirmation_units": 0,
+    }
 
 
 def validate_registry_scale(conditions: list[Condition]) -> None:

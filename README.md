@@ -35,14 +35,14 @@
 
 | 脚本 | 用途 | 主要输入 | 主要输出 |
 |---|---|---|---|
-| `main_methods/run_forgery.py` | Proposed固定预算伪造 | config、assets lock、manifest | 最终图、resume、ledger |
+| `main_methods/run_forgery.py` | Proposed伪造的独立预检入口；正式执行由批处理编排 | config、assets lock | 预检状态 |
 | `main_methods/run_removal.py` | Proposed固定预算移除 | 同上 | 同上 |
 | `main_methods/run_forgery_budget_pilot.py` | 伪造P0在线早停 | 伪造P0 config/manifest | 伪造P0 CSV、曲线、总结 |
 | `main_methods/run_removal_budget_pilot.py` | 移除P0在线早停 | 移除P0 config/manifest | 移除P0 CSV、曲线、总结 |
 | `main_methods/run_removal_beta_diagnostic.py` | beta=1.5固定预算移除诊断 | 10-key诊断config/manifest | ASR、质量、优化进度、最终图 |
-| `baselines/run_jain_forgery.py` | Jain伪造 | 正式输入 | 最终输出 |
+| `baselines/run_jain_forgery.py` | Jain伪造的独立预检入口；正式执行由批处理编排 | config、assets lock | 预检状态 |
 | `baselines/run_jain_removal.py` | Jain移除 | 正式输入 | 最终输出 |
-| `baselines/run_simple_averaging.py` | RGB非配对均值差、γ=1 | R/C manifest | 最终输出 |
+| `baselines/run_simple_averaging.py` | RGB非配对均值差的独立预检入口；正式执行由批处理编排 | config、assets lock | 预检状态 |
 | `baselines/run_distortion_removal.py` | 五种固定E6变换 | 水印目标 | 最终输出 |
 | `evaluation/evaluate_final.py` | 独立最终评价 | evaluation spool、manifest | 最终逐key/汇总/统计CSV |
 | `evaluation/evaluate_detector_trajectories.py` | E3–E5离线轨迹评价 | curve spool | 两份轨迹CSV |
@@ -111,6 +111,57 @@ python scripts/operations/inspect_run.py --config configs/formal/formal_v1p16.ya
 python scripts/operations/inspect_run.py --config configs/smoke/formal_v1p16_2key.yaml
 ```
 
+## 正式伪造运行
+
+正式伪造只通过`operations/run_formal_batch.py`启动。编排器为准备、攻击、评价分别创建
+独立Python进程；攻击进程只加载SD1.4代理VAE，不导入或调用目标检测器。首次命令完成
+同配置2-key smoke并生成GPU实测ETA与磁盘估计，不会自动进入200-key：
+
+先在本次提交、正式配置和资产锁上完成新旧Tree-Ring等价性门禁：
+
+```bash
+python scripts/operations/run_tree_ring_regression.py \
+  --config configs/formal/formal_v1p16.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --legacy-project /root/autodl-tmp/project/jain_multiref_latent_experiment_legacy \
+  --output /root/autodl-tmp/outputs/regression/tree_ring_v1p16.json \
+  --offline
+```
+
+报告必须为`PASSED`，且Git、配置和资产锁哈希会由正式编排器再次核对。然后运行smoke：
+
+```bash
+python scripts/operations/run_formal_batch.py \
+  --config configs/formal/formal_v1p16.yaml \
+  --smoke-config configs/smoke/formal_v1p16_2key.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p16.json \
+  --task forgery \
+  --run-id <run_id> \
+  --offline \
+  --smoke-only
+```
+
+检查`outputs/smoke/formal_forgery/<run_id>_smoke/smoke_report.json`为`PASSED`，并审阅同目录
+`runtime_estimate.json`中的P50/P90与spool磁盘估计。确认后以相同run-id执行：
+
+```bash
+python scripts/operations/run_formal_batch.py \
+  --config configs/formal/formal_v1p16.yaml \
+  --smoke-config configs/smoke/formal_v1p16_2key.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p16.json \
+  --task forgery \
+  --run-id <run_id> \
+  --offline \
+  --approve-full-run
+```
+
+第二条命令复核回归报告及五项smoke签名后才运行200-key。中断后原样重跑：完整单元经图像
+哈希校验后跳过，活动迭代单元从最近50步状态恢复。两个协议指定的临时spool仅在持久CSV、
+表图和哈希全部验证后自动清理，并写入清理inventory与ledger；三个可视化key的持久图不受
+影响。当前正式编排范围为伪造E0/E1/E3/E4/E7；正式移除入口仍未开放。
+
 ## 历史P0与诊断
 
 下列v1.14命令只用于追溯已经完成的实验，不再作为v1.16待运行流程，也不能使用v1.16代码
@@ -150,16 +201,18 @@ P0不持久保存参考PNG；参考图在需要时按预注册prompt/seed重新�
 本任务的一张累计ASR曲线。伪造失败单元保存第3000步终点；移除失败单元保存当前第15000步
 终点。两个任务的CSV和曲线不得混合。
 
-v1.16后续GPU验收从正式2-key smoke开始。smoke必须使用
-`configs/smoke/formal_v1p16_2key.yaml`并跑满1500步；通过后同一编排流程才可进入200-key正式实验。
+v1.16 GPU验收从正式2-key smoke开始。smoke使用
+`configs/smoke/formal_v1p16_2key.yaml`并跑满1500步；通过、审阅ETA并显式批准后，
+同一编排流程才可进入200-key正式实验。
 
 ## 当前明确门禁
 
 正式资产与manifest仍须显式锁定Tree-Ring为`channel=0,radius=16,p<=0.05`、RingID的`p<=0.05`、
 Gaussian Shading官方ChaCha20变体及FPR=`1e-6`对应的bit-accuracy阈值。每个key和水印
-从64个预注册有序候选中选择最先通过正式阈值的5张参考，并持久记录全部已测试候选及
+从64个预注册有序候选中选择最先通过正式阈值的25张参考，并持久记录全部已测试候选及
 选中图像哈希；不足25张时批次失败。启动时同时核对三种官方代码revision。正式配置中的
 `T_forgery_formal/T_removal_formal`必须均为1500，移除beta网格必须为`[1.0,1.5,2.0]`。
 
-当前`run_formal_batch.py`仍是显式门禁占位实现：配置已经冻结不等于正式编排链已经完成。
-在编排器、正式方法入口和独立评价链完成并通过GPU smoke前，不得声称200-key正式实验已可运行。
+`run_formal_batch.py`已接通正式伪造的准备、三方法攻击、独立最终/错误密钥/质量/FID评价、
+Proposed轨迹、表图、统计、恢复和smoke门禁。实际GPU smoke通过前不得启动200-key；正式移除
+仍须在其独立执行链完成后另行开放。

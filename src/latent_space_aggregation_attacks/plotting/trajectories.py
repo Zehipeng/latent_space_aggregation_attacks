@@ -24,14 +24,20 @@ def plot_detector_trajectory(rows: Iterable[dict], task: str, factor: str, outpu
         for column_index, watermark in enumerate(watermarks):
             axis = axes[row_index, column_index]
             panel = [r for r in records if r["task"] == task and r["factor_name"] == factor and r["model"] == model and r["watermark"] == watermark]
-            values = sorted({str(r["factor_value"]) for r in panel})
+            values = sorted({str(r["factor_value"]) for r in panel}, key=float)
             if len(values) != 3: raise ValueError("Every panel must contain exactly three factor values")
-            for value in values:
+            colors = ("#1f77b4", "#ff7f0e", "#2ca02c")
+            linestyles = ("-", "--", ":")
+            for index, value in enumerate(values):
                 points = sorted((r for r in panel if str(r["factor_value"]) == value), key=lambda r: int(r["step"]))
                 x = [int(r["step"]) for r in points]
                 y = [float(r["center"]) for r in points]
                 low = [float(r["lower"]) for r in points]; high = [float(r["upper"]) for r in points]
-                axis.plot(x, y, marker="o", label=value); axis.fill_between(x, low, high, alpha=.2)
+                axis.plot(
+                    x, y, marker="o", label=value, color=colors[index],
+                    linestyle=linestyles[index],
+                )
+                axis.fill_between(x, low, high, color=colors[index], alpha=.2)
             axis.axhline(thresholds[watermark], color="black", linestyle="--", linewidth=1)
             axis.set_title(f"{model} / {watermark}"); axis.set_xlabel("Iteration")
             axis.set_ylabel("bit accuracy" if watermark == "gaussian_shading" else "p-value")
@@ -41,4 +47,3 @@ def plot_detector_trajectory(rows: Iterable[dict], task: str, factor: str, outpu
     destination = Path(output_dir) / FIGURES[(task, factor)]; destination.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(destination, dpi=300); plt.close(fig)
     return destination
-

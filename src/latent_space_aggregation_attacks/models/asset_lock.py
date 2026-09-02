@@ -7,6 +7,19 @@ from typing import Any
 
 from latent_space_aggregation_attacks.core.hashing import TREE_HASH_POLICY, sha256_tree
 
+FORMAL_REQUIRED_ASSETS = {
+    "stable-diffusion-v1-4": "133a221b8aa7292a167afc5127cb63fb5005638b",
+    "stable-diffusion-2-base": "f5bc1bd97485577aa0b946fa8a9004e2ec147402",
+    "tree-ring-watermark": "3015283d9cf82e90b628f02ad2121bd37408ca9a",
+    "RingID": "45631a59aecd7d63ccdb640aaaf3e616fdb89fb9",
+    "Gaussian-Shading": "09c678fadc7545acf7be12647ddf2a5e66f6a9dc",
+    "formal-protocol-v1.10-prompt-manifest": "formal_protocol_v1.10",
+    "formal-protocol-v1.10-coco-manifests": "formal_protocol_v1.10",
+    "lpips-alex-v0.1": "lpips-0.1.4-v0.1",
+    "alexnet-imagenet1k": "torchvision-0.16.2-IMAGENET1K_V1",
+    "inception-v3-imagenet1k": "torchvision-0.16.2-IMAGENET1K_V1",
+}
+
 
 def load_and_verify_assets(path: str | Path) -> dict[str, Any]:
     lock_path = Path(path)
@@ -28,6 +41,17 @@ def load_and_verify_assets(path: str | Path) -> dict[str, Any]:
         if not asset.get("revision") and asset.get("kind") in {"model", "watermark_code"}:
             raise ValueError(f"Unpinned asset: {asset['name']}")
     return payload
+
+
+def validate_formal_assets(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    by_name = {str(asset["name"]): asset for asset in payload.get("assets", [])}
+    missing = sorted(set(FORMAL_REQUIRED_ASSETS) - set(by_name))
+    if missing:
+        raise ValueError(f"Formal assets lock is missing required entries: {missing}")
+    for name, revision in FORMAL_REQUIRED_ASSETS.items():
+        if by_name[name].get("revision") != revision:
+            raise ValueError(f"Formal asset {name} must use revision {revision}")
+    return by_name
 
 
 def enforce_offline_environment() -> None:

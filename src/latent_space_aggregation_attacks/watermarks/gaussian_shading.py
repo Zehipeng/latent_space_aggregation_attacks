@@ -73,8 +73,13 @@ class GaussianShadingAdapter:
         copy_count = self.channel_copy * self.hw_copy * self.hw_copy
         return (vote > copy_count // 2).to(torch.uint8)
 
-    def detect(self, image: Any, key: Any) -> Detection:
-        inverted = invert_image(self.pipe, image, steps=self.inversion_steps)
+    def invert(self, image: Any) -> Any:
+        return invert_image(self.pipe, image, steps=self.inversion_steps)
+
+    def detect_inverted(self, inverted: Any, key: Any) -> Detection:
         recovered = self._recover_message(inverted, key)
         score = float((recovered == key["message"][0]).float().mean().item())
         return Detection(score=score, accepted=score >= self.threshold, score_name="bit_accuracy")
+
+    def detect(self, image: Any, key: Any) -> Detection:
+        return self.detect_inverted(self.invert(image), key)

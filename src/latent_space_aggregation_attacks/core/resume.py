@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .atomic_io import atomic_save
+from .atomic_io import atomic_save, atomic_write_text
 from .hashing import sha256_file
 
 
@@ -26,7 +26,7 @@ class ResumeState:
 def save_resume_state(path: str | Path, state: ResumeState) -> str:
     atomic_save(path, state, lambda value, handle: pickle.dump(value, handle, protocol=5))
     checksum = sha256_file(path)
-    Path(f"{path}.sha256").write_text(checksum + "\n", encoding="ascii")
+    atomic_write_text(f"{path}.sha256", checksum + "\n")
     return checksum
 
 
@@ -58,4 +58,3 @@ def load_resume_state(
     if recorded != expected:
         raise ValueError("Resume identity/hash mismatch")
     return state
-

@@ -124,9 +124,14 @@ class RingIDAdapter:
         latents = torch.fft.ifft2(torch.fft.ifftshift(spectrum, dim=(-1, -2))).real
         return generate_from_latents(self.pipe, prompt, latents, steps=self.generation_steps)
 
-    def detect(self, image: Any, key: Any) -> Detection:
+    def invert(self, image: Any) -> Any:
+        return invert_image(self.pipe, image, steps=self.inversion_steps)
+
+    def detect_inverted(self, inverted: Any, key: Any) -> Detection:
         import torch
-        inverted = invert_image(self.pipe, image, steps=self.inversion_steps)
         spectrum = torch.fft.fftshift(torch.fft.fft2(inverted), dim=(-1, -2))
         score = ncx2_p_value(spectrum, key["pattern"], key["mask"])
         return Detection(score=score, accepted=score <= self.threshold, score_name="p_value")
+
+    def detect(self, image: Any, key: Any) -> Detection:
+        return self.detect_inverted(self.invert(image), key)

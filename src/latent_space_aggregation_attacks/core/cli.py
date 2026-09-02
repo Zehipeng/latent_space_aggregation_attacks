@@ -26,4 +26,4 @@ def inspect_config_entry() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     args = parser.parse_args(); config = load_config(args.config); conditions=formal_condition_registry(); validate_registry_scale(conditions)
-    print(json.dumps({"protocol_version": config["protocol_version"], "run_mode": config["run_mode"], "resolved_config_hash": config["resolved_config_hash"], "condition_count": len(conditions), "expected_counts": expected_output_counts()}, ensure_ascii=False, indent=2))
+    print(json.dumps({"protocol_version": config["protocol_version"], "run_mode": config["run_mode"], "resolved_config_hash": config["resolved_config_hash"], "condition_count": len(conditions), "expected_counts": expected_output_counts(key_count=int(config["key_count"]))}, ensure_ascii=False, indent=2))
