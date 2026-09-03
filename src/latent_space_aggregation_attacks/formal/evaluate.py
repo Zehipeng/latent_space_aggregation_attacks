@@ -13,7 +13,6 @@ import numpy as np
 from latent_space_aggregation_attacks import PROTOCOL_VERSION
 from latent_space_aggregation_attacks.evaluation.eligibility import success as attack_success
 from latent_space_aggregation_attacks.evaluation.metrics import paired_quality_metrics
-from latent_space_aggregation_attacks.evaluation.statistics import wilson_interval
 from latent_space_aggregation_attacks.models.loaders import load_target_pipeline
 from latent_space_aggregation_attacks.watermarks.base import registered_adapter
 
@@ -31,7 +30,7 @@ FINAL_FIELDS = [
     "task", "method", "key_id", "target_id", "reference_ids", "clean_ids",
     "N", "lambda", "beta", "gamma", "seed", "final_step", "eligible",
     "success", "initial_score", "final_score", "score_name", "accepted_after",
-    "l2", "linf", "rmse", "lpips", "ssim",
+    "l2", "linf", "lpips", "ssim",
     "psnr", "attack_compute_time", "output_sha256", "output_image_path",
 ]
 def _as_bool(value: Any) -> bool:
@@ -132,7 +131,6 @@ def _condition_summary(rows: list[dict[str, Any]], fid_by_condition: dict[str, f
     for condition_id, group in sorted(grouped.items()):
         eligible = [row for row in group if _as_bool(row["eligible"])]
         successes = sum(_as_bool(row["success"]) for row in eligible)
-        low, high = wilson_interval(successes, len(eligible)) if eligible else (float("nan"), float("nan"))
         first = group[0]
         summaries.append({
             "protocol_version": PROTOCOL_VERSION, "run_id": first["run_id"],
@@ -141,7 +139,6 @@ def _condition_summary(rows: list[dict[str, Any]], fid_by_condition: dict[str, f
             "N": first["N"], "lambda": first["lambda"], "beta": first["beta"],
             "gamma": first["gamma"], "sample_n": len(group), "eligible_n": len(eligible),
             "success_n": successes, "ASR": successes / len(eligible) if eligible else "",
-            "ASR_ci_low": low if eligible else "", "ASR_ci_high": high if eligible else "",
             **{
                 metric: float(np.mean([float(row[metric]) for row in group]))
                 for metric in ("l2", "linf", "lpips", "ssim", "psnr", "attack_compute_time")
@@ -431,7 +428,7 @@ def evaluate_formal_forgery(
                         "initial_score": initial.score, "final_score": final.score,
                         "score_name": final.score_name, "accepted_after": accepted_after,
                         "l2": quality["l2"], "linf": quality["linf"],
-                        "rmse": float(np.sqrt(np.mean(diff ** 2))), "lpips": quality["LPIPS"],
+                        "lpips": quality["LPIPS"],
                         "ssim": quality["SSIM"], "psnr": quality["PSNR"],
                         "attack_compute_time": float(row["optimization_compute_time"]),
                     })

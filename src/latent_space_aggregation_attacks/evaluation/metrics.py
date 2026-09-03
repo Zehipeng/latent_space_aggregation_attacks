@@ -54,7 +54,6 @@ def perturbation_metrics(original: np.ndarray, attacked: np.ndarray) -> dict[str
     return {
         "l2": float(np.linalg.norm(diff.reshape(-1))),
         "linf": float(np.abs(diff).max()),
-        "rmse": float(np.sqrt(np.mean(diff**2))),
     }
 
 
@@ -63,7 +62,7 @@ def validate_final_row(row: dict[str, Any], task_budgets: dict[str, int]) -> Non
         "protocol_version", "run_id", "condition_id", "watermark", "model_setting",
         "task", "method", "key_id", "target_id", "reference_ids", "clean_ids",
         "N", "lambda", "beta", "gamma", "seed", "final_step", "l2", "linf",
-        "rmse", "lpips", "ssim", "psnr", "attack_compute_time",
+        "lpips", "ssim", "psnr", "attack_compute_time",
     }
     missing = sorted(required - row.keys())
     if missing:

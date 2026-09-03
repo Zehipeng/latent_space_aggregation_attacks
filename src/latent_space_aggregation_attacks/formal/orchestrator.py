@@ -226,7 +226,7 @@ def run_formal_forgery(
         regression_report_path, config=config, assets_lock=assets_lock, project_root=project,
     )
     if config["validated_batching"]["require_equivalence_gate"]:
-        raise RuntimeError("formal_protocol_v1.20 prohibits batched formal execution")
+        raise RuntimeError("formal_protocol_v1.21 prohibits batched formal execution")
     output_root = Path(config["output_root"])
     smoke_dir = output_root / "smoke/formal_forgery" / f"{run_id}_smoke"
     full_dir = output_root / "formal_forgery" / run_id

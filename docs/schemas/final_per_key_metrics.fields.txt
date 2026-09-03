@@ -17,7 +17,6 @@ seed
 final_step
 l2
 linf
-rmse
 lpips
 ssim
 psnr
@@ -25,10 +24,6 @@ target_score
 target_accepted
 success
 eligible
-wrong_key_accept_count
-any_wrong_key_accept
-target_rank
-target_top1
 reference_compute_time
 optimization_compute_time
 attack_compute_time

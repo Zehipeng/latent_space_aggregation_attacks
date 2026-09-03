@@ -1,11 +1,11 @@
 # Project structure
 
-The repository separates the active v1.20 execution path from historical material.
+The repository separates the active v1.21 execution path from historical material.
 
 ```text
 latent_space_aggregation_attacks/
 ├─ configs/
-│  ├─ current/                 # only runnable v1.20 formal/smoke configs
+│  ├─ current/                 # only runnable v1.21 formal/smoke configs
 │  ├─ assets/                  # AutoDL inventory template
 │  └─ archive/                 # v1.15/v1.16, P0, diagnostics, templates
 ├─ scripts/
@@ -27,11 +27,11 @@ latent_space_aggregation_attacks/
 │  ├─ core/                    # generic config, hashing, resume, locks, seeds
 │  ├─ watermarks/              # Tree-Ring, RingID, Gaussian Shading adapters
 │  ├─ methods/baselines/       # comparison methods only
-│  ├─ evaluation/              # reusable metrics and statistics
+│  ├─ evaluation/              # reusable metrics and eligibility rules
 │  └─ archive/                 # historical P0 runtime
 ├─ tests/                      # active and archived-path regression tests
 └─ docs/
-   ├─ protocols/               # current v1.20 snapshot
+   ├─ protocols/               # current v1.21 snapshot
    │  └─ archive/              # immutable prior snapshots
    └─ archive/                 # obsolete operational notes
 ```
@@ -54,10 +54,10 @@ loading the package.
 ## Current commands
 
 ```bash
-python scripts/operations/inspect_run.py --config configs/current/formal_v1p20.yaml
+python scripts/operations/inspect_run.py --config configs/current/formal_v1p21.yaml
 python scripts/validate_tree_ring.py --help
 python scripts/validate_batching.py --help
 python scripts/run_formal.py --help
 ```
 
-Anything under an `archive/` directory is excluded from the v1.20 formal path.
+Anything under an `archive/` directory is excluded from the v1.21 formal path.

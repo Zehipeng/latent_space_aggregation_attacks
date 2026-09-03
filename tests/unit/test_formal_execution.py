@@ -6,7 +6,8 @@ from PIL import Image
 from scipy.linalg import sqrtm
 
 from latent_space_aggregation_attacks.formal.attack import _matched_noise
-from latent_space_aggregation_attacks.formal.evaluate import _cleanup_validated_spools, _fid
+from latent_space_aggregation_attacks.evaluation.metrics import perturbation_metrics
+from latent_space_aggregation_attacks.formal.evaluate import FINAL_FIELDS, _cleanup_validated_spools, _condition_summary, _fid
 from latent_space_aggregation_attacks.formal.orchestrator import _eta_report
 from latent_space_aggregation_attacks.models.asset_lock import validate_formal_assets
 
@@ -46,6 +47,22 @@ def test_low_rank_fid_matches_standard_covariance_formula():
 def test_fid_is_zero_for_identical_collections():
     values = np.arange(24, dtype=float).reshape(6, 4)
     assert _fid(values, values) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_v121_omits_rmse_and_asr_confidence_intervals():
+    metrics = perturbation_metrics(np.zeros((2, 2, 3)), np.ones((2, 2, 3)))
+    assert set(metrics) == {"l2", "linf"}
+    assert "rmse" not in FINAL_FIELDS
+    rows = [{
+        "condition_id": "c", "run_id": "r", "watermark": "tree_ring",
+        "model_setting": "same_model_sd14_target_sd14_vae_proxy", "method": "proposed",
+        "N": 5, "lambda": 10000.0, "beta": "", "gamma": "", "eligible": True,
+        "success": True, "l2": 1.0, "linf": 0.1, "lpips": 0.2, "ssim": 0.9,
+        "psnr": 30.0, "attack_compute_time": 1.0,
+    }]
+    summary = _condition_summary(rows, {"c": 2.0})[0]
+    assert summary["success_n"] == 1 and summary["eligible_n"] == 1 and summary["ASR"] == 1.0
+    assert "ASR_ci_low" not in summary and "ASR_ci_high" not in summary
 
 
 def test_e7_noise_records_post_clipping_norms():
