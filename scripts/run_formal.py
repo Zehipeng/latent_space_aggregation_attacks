@@ -1,7 +1,8 @@
 from __future__ import annotations
 import argparse, json, sys
 from pathlib import Path
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"src"))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from latent_space_aggregation_attacks.core.preflight import preflight
 from latent_space_aggregation_attacks.formal.orchestrator import run_formal_forgery
 
@@ -31,7 +32,7 @@ def main() -> None:
         config=result["config"], assets_lock=result["assets"], config_path=args.config,
         smoke_config_path=args.smoke_config, assets_lock_path=args.assets_lock, run_id=args.run_id,
         regression_report_path=args.tree_ring_regression_report,
-        project_root=Path(__file__).resolve().parents[2], smoke_only=args.smoke_only,
+        project_root=PROJECT_ROOT, smoke_only=args.smoke_only,
         approve_full_run=args.approve_full_run,
     )
     print(json.dumps(value, ensure_ascii=False, indent=2))
