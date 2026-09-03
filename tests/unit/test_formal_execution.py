@@ -6,8 +6,7 @@ from PIL import Image
 from scipy.linalg import sqrtm
 
 from latent_space_aggregation_attacks.formal.attack import _matched_noise
-from latent_space_aggregation_attacks.formal.evaluate import _cleanup_validated_spools, _detect_key_bank, _detect_key_bank_many, _fid
-from latent_space_aggregation_attacks.formal.common import frozen_trajectory_steps
+from latent_space_aggregation_attacks.formal.evaluate import _cleanup_validated_spools, _fid
 from latent_space_aggregation_attacks.formal.orchestrator import _eta_report
 from latent_space_aggregation_attacks.models.asset_lock import validate_formal_assets
 
@@ -63,14 +62,11 @@ def test_e7_noise_records_post_clipping_norms():
 
 def test_validated_spool_cleanup_is_scoped_and_idempotent(tmp_path):
     first = tmp_path / "evaluation_spool/a.png"
-    second = tmp_path / "curve_checkpoint_spool/c/step_0100.png"
     first.parent.mkdir(parents=True)
-    second.parent.mkdir(parents=True)
     first.write_bytes(b"first")
-    second.write_bytes(b"second")
     result = _cleanup_validated_spools(tmp_path)
-    assert result == {"status": "COMPLETE", "removed_files": 2, "removed_bytes": 11}
-    assert not first.exists() and not second.exists()
+    assert result == {"status": "COMPLETE", "removed_files": 1, "removed_bytes": 5}
+    assert not first.exists()
     assert _cleanup_validated_spools(tmp_path) == result
 
 
@@ -113,35 +109,3 @@ def test_eta_report_retains_cleaned_spool_peak_and_runtime_metadata(tmp_path):
     assert report["hardware_software"]["inversion_batch_size"] == 1
     assert report["hardware_software"]["reference_encode_batch_size"] == 1
     assert report["p90_seconds"] >= report["p50_seconds"]
-
-
-def test_wrong_key_bank_reuses_one_image_inversion():
-    class Adapter:
-        inversions = 0
-        def invert(self, image):
-            self.inversions += 1
-            return image * 2
-        def detect_inverted(self, inverted, key):
-            return inverted + key
-    adapter = Adapter()
-    result = _detect_key_bank(adapter, 3, {"a": 1, "b": 2, "c": 3})
-    assert result == {"a": 7, "b": 8, "c": 9}
-    assert adapter.inversions == 1
-
-
-def test_v117_trajectory_keeps_non_interval_final_step():
-    assert frozen_trajectory_steps(150, 100) == [0, 100, 150]
-
-
-def test_batch_wrong_key_bank_uses_one_batch_inversion():
-    class Adapter:
-        calls = 0
-        def invert_many(self, images):
-            self.calls += 1
-            return np.asarray(images)[:, None]
-        def detect_inverted(self, inverted, key):
-            return int(inverted[0, 0]) + key
-    adapter = Adapter()
-    result = _detect_key_bank_many(adapter, [3, 4], {"a": 1, "b": 2})
-    assert result == [{"a": 4, "b": 5}, {"a": 5, "b": 6}]
-    assert adapter.calls == 1

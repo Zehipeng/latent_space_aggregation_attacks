@@ -146,7 +146,7 @@ def _eta_report(
     if cleanup_report.is_file():
         spool_bytes = int(json.loads(cleanup_report.read_text(encoding="utf-8"))["removed_bytes"])
     else:
-        spool_bytes = _tree_bytes(smoke_dir / "evaluation_spool") + _tree_bytes(smoke_dir / "curve_checkpoint_spool")
+        spool_bytes = _tree_bytes(smoke_dir / "evaluation_spool")
     phase_runtime = {
         phase: json.loads((smoke_dir / f"logs/{phase}_runtime.json").read_text(encoding="utf-8"))
         for phase in ("prepare", "attack", "evaluate")
@@ -156,7 +156,6 @@ def _eta_report(
     generated_at = datetime.now(timezone.utc)
     full_primary_outputs = 13_200
     full_e7_outputs = 13_200
-    full_trajectory_rows = 21_600
     report = {
         "status": "ESTIMATED_AWAITING_FULL_RUN_APPROVAL",
         "protocol_version": PROTOCOL_VERSION,
@@ -179,8 +178,7 @@ def _eta_report(
             "reference_key_model_watermark_groups": 1_200,
             "primary_attack_outputs": full_primary_outputs,
             "e7_control_outputs": full_e7_outputs,
-            "final_and_wrong_key_evaluation_outputs": full_primary_outputs + full_e7_outputs,
-            "detector_trajectory_rows": full_trajectory_rows,
+            "final_target_key_evaluation_outputs": full_primary_outputs + full_e7_outputs,
             "completed_formal_outputs": 0,
             "remaining_formal_outputs": full_primary_outputs + full_e7_outputs,
         },
@@ -194,7 +192,7 @@ def _eta_report(
         "smoke_phase_seconds": timings,
         "notes": [
             "ETA is hardware-dependent and is not a completion promise.",
-            "The estimate includes preparation, attack, final/wrong-key evaluation, trajectory I/O and plotting.",
+            "The estimate includes preparation, attack, final target-key evaluation, quality metrics and reporting.",
             "Preparation and evaluation are conservatively scaled from their complete 2-key phase wall times.",
             "Attack P50/P90 use the per-unit compute times recorded across every smoke method and condition.",
             "Full execution requires an explicit --approve-full-run flag.",
@@ -228,7 +226,7 @@ def run_formal_forgery(
         regression_report_path, config=config, assets_lock=assets_lock, project_root=project,
     )
     if config["validated_batching"]["require_equivalence_gate"]:
-        raise RuntimeError("formal_protocol_v1.19 prohibits batched formal execution")
+        raise RuntimeError("formal_protocol_v1.20 prohibits batched formal execution")
     output_root = Path(config["output_root"])
     smoke_dir = output_root / "smoke/formal_forgery" / f"{run_id}_smoke"
     full_dir = output_root / "formal_forgery" / run_id

@@ -5,7 +5,7 @@ from pathlib import Path
 RUN_DIRS = (
     "protocol_snapshot", "manifests", "logs", "checkpoints_visualization_keys",
     "resume_state", "final_images_visualization_keys", "evaluation_spool",
-    "curve_checkpoint_spool", "evaluation", "figures",
+    "evaluation", "figures",
 )
 
 
@@ -20,4 +20,3 @@ def create_run_layout(root: str | Path, experiment_id: str, run_id: str) -> Path
 
 def visualization_keys() -> tuple[str, str, str]:
     return "key_000", "key_100", "key_199"
-

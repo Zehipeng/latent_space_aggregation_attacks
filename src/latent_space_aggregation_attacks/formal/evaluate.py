@@ -12,17 +12,14 @@ import numpy as np
 
 from latent_space_aggregation_attacks import PROTOCOL_VERSION
 from latent_space_aggregation_attacks.evaluation.eligibility import success as attack_success
-from latent_space_aggregation_attacks.evaluation.metrics import paired_quality_metrics, wrong_identity_metrics
-from latent_space_aggregation_attacks.evaluation.statistics import (
-    bootstrap_ci, holm_adjust, mcnemar_exact, paired_wilcoxon, wilson_interval,
-)
+from latent_space_aggregation_attacks.evaluation.metrics import paired_quality_metrics
+from latent_space_aggregation_attacks.evaluation.statistics import wilson_interval
 from latent_space_aggregation_attacks.models.loaders import load_target_pipeline
-from latent_space_aggregation_attacks.plotting.trajectories import plot_detector_trajectory
 from latent_space_aggregation_attacks.watermarks.base import registered_adapter
 
 from ..core.atomic_io import atomic_write_json, atomic_write_text
 from .common import (
-    adapter_config, assets_by_name, atomic_csv, canonical_512, formal_inputs, frozen_trajectory_steps, model_config,
+    adapter_config, assets_by_name, atomic_csv, canonical_512, formal_inputs, model_config,
     open_rgb, read_csv, threshold,
 )
 from ..core.hashing import sha256_file, stable_hash
@@ -34,22 +31,9 @@ FINAL_FIELDS = [
     "task", "method", "key_id", "target_id", "reference_ids", "clean_ids",
     "N", "lambda", "beta", "gamma", "seed", "final_step", "eligible",
     "success", "initial_score", "final_score", "score_name", "accepted_after",
-    "wrong_key_checked", "wrong_key_accept_count", "any_wrong_key_accept",
-    "target_rank", "target_top1", "l2", "linf", "rmse", "lpips", "ssim",
+    "l2", "linf", "rmse", "lpips", "ssim",
     "psnr", "attack_compute_time", "output_sha256", "output_image_path",
 ]
-TRAJECTORY_FIELDS = [
-    "protocol_version", "run_id", "condition_id", "task", "watermark",
-    "model_setting", "model", "key_id", "factor_name", "factor_value", "step",
-    "score_name", "score", "threshold",
-]
-TRAJECTORY_SUMMARY_FIELDS = [
-    "protocol_version", "run_id", "task", "watermark", "model_setting", "model",
-    "factor_name", "factor_value", "step", "n", "center", "lower", "upper",
-    "score_name", "threshold",
-]
-
-
 def _as_bool(value: Any) -> bool:
     return value is True or str(value).strip().lower() == "true"
 
@@ -86,18 +70,18 @@ def _cleanup_validated_spools(root: Path) -> dict[str, int | str]:
     else:
         inventory = [
             {"path": path.relative_to(root).as_posix(), "size": path.stat().st_size}
-            for relative in ("evaluation_spool", "curve_checkpoint_spool")
+            for relative in ("evaluation_spool",)
             for path in sorted((root / relative).rglob("*"))
             if path.is_file()
         ]
         atomic_write_json(inventory_path, inventory)
-    allowed_roots = tuple((root / name).resolve() for name in ("evaluation_spool", "curve_checkpoint_spool"))
+    allowed_roots = ((root / "evaluation_spool").resolve(),)
     for item in inventory:
         path = (root / item["path"]).resolve()
         if not any(path.is_relative_to(allowed) for allowed in allowed_roots):
             raise RuntimeError(f"Unsafe spool cleanup inventory path: {path}")
         path.unlink(missing_ok=True)
-    for relative in ("evaluation_spool", "curve_checkpoint_spool"):
+    for relative in ("evaluation_spool",):
         spool = root / relative
         if not spool.exists():
             continue
@@ -138,64 +122,6 @@ def _key_bank(adapter: Any, watermark: str, key_ids: list[str]) -> dict[str, Any
         })
         for key_id in key_ids
     }
-
-
-def _detect_key_bank(adapter: Any, image: Any, keys: dict[str, Any]) -> dict[str, Any]:
-    """Invert an image once, then score every registered identity."""
-    inverted = adapter.invert(image)
-    return {key_id: adapter.detect_inverted(inverted, key) for key_id, key in keys.items()}
-
-
-def _detect_key_bank_many(adapter: Any, images: list[Any], keys: dict[str, Any]) -> list[dict[str, Any]]:
-    """Batch-invert independent images, then score each against the full key bank."""
-    inverted = adapter.invert_many(images)
-    return [
-        {key_id: adapter.detect_inverted(inverted[index:index + 1], key) for key_id, key in keys.items()}
-        for index in range(len(images))
-    ]
-
-
-def _trajectory_factor(row: dict[str, str]) -> list[tuple[str, str]]:
-    if row["method"] != "proposed":
-        return []
-    values: list[tuple[str, str]] = []
-    if int(float(row["N"])) == 5 and float(row["lambda"]) in {10000.0, 20000.0, 50000.0}:
-        values.append(("lambda", str(float(row["lambda"]))))
-    if float(row["lambda"]) == 10000.0 and int(float(row["N"])) in {1, 5, 25}:
-        values.append(("N", str(int(float(row["N"])))))
-    return values
-
-
-def _summarize_trajectories(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, ...], list[float]] = defaultdict(list)
-    metadata: dict[tuple[str, ...], dict[str, Any]] = {}
-    for row in rows:
-        key = (
-            row["watermark"], row["model_setting"], row["model"], row["factor_name"],
-            str(row["factor_value"]), str(row["step"]), row["score_name"], str(row["threshold"]),
-        )
-        grouped[key].append(float(row["score"]))
-        metadata[key] = row
-    result = []
-    for key, values in sorted(grouped.items()):
-        row = metadata[key]
-        array = np.asarray(values, dtype=float)
-        if row["watermark"] == "gaussian_shading":
-            center = float(array.mean())
-            low, high = bootstrap_ci(array, seed=derive_seed("worker", "trajectory", *key), samples=2000)
-        else:
-            center = float(np.median(array))
-            low, high = map(float, np.quantile(array, [0.25, 0.75]))
-        result.append({
-            "protocol_version": PROTOCOL_VERSION, "run_id": row["run_id"],
-            "task": "forgery", "watermark": row["watermark"],
-            "model_setting": row["model_setting"], "model": row["model"],
-            "factor_name": row["factor_name"], "factor_value": row["factor_value"],
-            "step": int(row["step"]), "n": len(values), "center": center,
-            "lower": low, "upper": high, "score_name": row["score_name"],
-            "threshold": row["threshold"],
-        })
-    return result
 
 
 def _condition_summary(rows: list[dict[str, Any]], fid_by_condition: dict[str, float]) -> list[dict[str, Any]]:
@@ -313,71 +239,9 @@ def _paper_tables(summaries: list[dict[str, Any]], output: Path) -> list[Path]:
     return outputs
 
 
-def _main_statistics(rows: list[dict[str, Any]], output: Path) -> Path:
-    results = []
-    for watermark in ("tree_ring", "ringid", "gaussian_shading"):
-        for model_setting in ("same_model_sd14_target_sd14_vae_proxy", "cross_model_sd2_target_sd14_vae_proxy"):
-            panel = [row for row in rows if row["watermark"] == watermark and row["model_setting"] == model_setting]
-            jain = {
-                row["key_id"]: row for row in panel
-                if row["method"] == "jain" and int(float(row["N"])) == 1 and float(row["lambda"]) == 10000.0
-            }
-            proposed = {
-                row["key_id"]: row for row in panel
-                if row["method"] == "proposed" and int(float(row["N"])) == 5 and float(row["lambda"]) == 10000.0
-            }
-            keys = sorted(set(jain) & set(proposed))
-            eligible = [key for key in keys if _as_bool(jain[key]["eligible"]) and _as_bool(proposed[key]["eligible"])]
-            mcnemar = mcnemar_exact(
-                [_as_bool(jain[key]["success"]) for key in eligible],
-                [_as_bool(proposed[key]["success"]) for key in eligible],
-            )
-            for metric in ("success", "l2", "lpips"):
-                if metric == "success":
-                    results.append({
-                        "family": "main_forgery", "watermark": watermark,
-                        "model_setting": model_setting, "comparison": "proposed_vs_jain",
-                        "metric": metric, "n": len(eligible), "effect": mcnemar["second_only"] - mcnemar["first_only"],
-                        "p_value": mcnemar["p_value"],
-                    })
-                else:
-                    paired = paired_wilcoxon(
-                        [float(jain[key][metric]) for key in keys],
-                        [float(proposed[key][metric]) for key in keys],
-                    )
-                    results.append({
-                        "family": "main_forgery", "watermark": watermark,
-                        "model_setting": model_setting, "comparison": "proposed_vs_jain",
-                        "metric": metric, "n": len(keys), "effect": paired["median_paired_difference"],
-                        "p_value": paired["p_value"],
-                    })
-    adjusted = holm_adjust([float(row["p_value"]) for row in results])
-    for row, value in zip(results, adjusted):
-        row["holm_p_value"] = value
-    atomic_csv(output, results)
-    return output
-
-
 def _diagnostic_tables(
     rows: list[dict[str, Any]], summaries: list[dict[str, Any]], output: Path, *, budget: int,
 ) -> list[Path]:
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[row["condition_id"]].append(row)
-    wrong_key_rows = []
-    for condition_id, group in sorted(grouped.items()):
-        first = group[0]
-        wrong_key_rows.append({
-            "condition_id": condition_id, "Watermark": first["watermark"],
-            "Model": _model_label(first["model_setting"]), "Method": first["method"],
-            "sample_n": len(group),
-            "any_wrong_key_accept_rate": float(np.mean([_as_bool(row["any_wrong_key_accept"]) for row in group])),
-            "mean_wrong_key_accept_count": float(np.mean([int(row["wrong_key_accept_count"]) for row in group])),
-            "target_top1_rate": float(np.mean([_as_bool(row["target_top1"]) for row in group])),
-            "mean_target_rank": float(np.mean([int(row["target_rank"]) for row in group])),
-        })
-    wrong_path = output / "wrong_key_diagnostics.csv"
-    atomic_csv(wrong_path, wrong_key_rows)
     failures = [
         row for row in rows
         if row["method"] != "matched_gaussian_noise" and _as_bool(row["eligible"]) and not _as_bool(row["success"])
@@ -411,7 +275,7 @@ def _diagnostic_tables(
         })
     cost_path = output / "cost_and_permissions.csv"
     atomic_csv(cost_path, costs)
-    return [wrong_path, failure_path, ineligible_path, cost_path]
+    return [failure_path, ineligible_path, cost_path]
 
 
 def _condition_fids(
@@ -494,11 +358,8 @@ def evaluate_formal_forgery(
     lpips_model = _lpips_model(assets)
     import json
     final_path = root / "evaluation/final_per_key_metrics.csv"
-    trajectory_path = root / "evaluation/detector_trajectory_per_key.csv"
     final_unit_dir = root / "evaluation/final_units"
-    trajectory_unit_dir = root / "evaluation/trajectory_units"
     final_unit_dir.mkdir(parents=True, exist_ok=True)
-    trajectory_unit_dir.mkdir(parents=True, exist_ok=True)
     final_rows: list[dict[str, Any]] = [
         json.loads(path.read_text(encoding="utf-8")) for path in sorted(final_unit_dir.glob("*.json"))
     ]
@@ -510,19 +371,10 @@ def evaluate_formal_forgery(
         and (root / row["output_image_path"]).is_file()
         and sha256_file(root / row["output_image_path"]) == row["output_sha256"]
     ]
-    trajectory_rows: list[dict[str, Any]] = [
-        row for path in sorted(trajectory_unit_dir.glob("*.json"))
-        for row in json.loads(path.read_text(encoding="utf-8"))
-    ]
     completed_final = {(row["condition_id"], row["key_id"]) for row in final_rows}
-    completed_trajectory = {
-        (row["condition_id"], row["key_id"], row["factor_name"], str(row["factor_value"]), int(row["step"]))
-        for row in trajectory_rows
-    }
     evaluation_durations: list[float] = []
     visited_outputs = 0
     final_inversion_images = 0
-    trajectory_unique_inversions = 0
     atomic_write_text(root / "logs/evaluation_command.txt", " ".join(__import__("sys").argv) + "\n")
     for model_setting in config["model_settings"]:
         pipe = load_target_pipeline(model_config(assets, model_setting), offline=True)
@@ -546,7 +398,7 @@ def evaluate_formal_forgery(
                 inverted = adapter.invert_many(sources)
                 for index, key_id in enumerate(batch_keys):
                     initial_cache[key_id] = adapter.detect_inverted(inverted[index:index + 1], keys[key_id])
-            final_detection_cache: dict[tuple[str, str], dict[str, Any]] = {}
+            final_detection_cache: dict[tuple[str, str], Any] = {}
             pending_final = [
                 row for row in selected
                 if (row["condition_id"], row["key_id"]) not in completed_final
@@ -554,35 +406,10 @@ def evaluate_formal_forgery(
             for offset in range(0, len(pending_final), inversion_batch_size):
                 batch_rows = pending_final[offset:offset + inversion_batch_size]
                 images = [open_rgb(root / row["output_image_path"]) for row in batch_rows]
-                detections = _detect_key_bank_many(adapter, images, keys)
+                inverted = adapter.invert_many(images)
                 final_inversion_images += len(batch_rows)
-                for row, value in zip(batch_rows, detections):
-                    final_detection_cache[(row["condition_id"], row["key_id"])] = value
-            trajectory_detection_cache: dict[tuple[str, str, int], Any] = {}
-            trajectory_work: list[tuple[dict[str, str], int, Path]] = []
-            for row in selected:
-                factors = _trajectory_factor(row)
-                if not factors:
-                    continue
-                for step in frozen_trajectory_steps(
-                    int(config["T_forgery_formal"]), int(config["trajectory_every"])
-                ):
-                    missing = [
-                        (factor_name, factor_value) for factor_name, factor_value in factors
-                        if (row["condition_id"], row["key_id"], factor_name, factor_value, step)
-                        not in completed_trajectory
-                    ]
-                    if missing:
-                        checkpoint = root / "curve_checkpoint_spool" / row["condition_id"] / row["key_id"] / f"step_{step:04d}.png"
-                        if not checkpoint.is_file():
-                            raise FileNotFoundError(checkpoint)
-                        trajectory_work.append((row, step, checkpoint))
-            for offset in range(0, len(trajectory_work), inversion_batch_size):
-                work = trajectory_work[offset:offset + inversion_batch_size]
-                inverted = adapter.invert_many([open_rgb(path) for _, _, path in work])
-                trajectory_unique_inversions += len(work)
-                for index, (row, step, _) in enumerate(work):
-                    trajectory_detection_cache[(row["condition_id"], row["key_id"], step)] = adapter.detect_inverted(
+                for index, row in enumerate(batch_rows):
+                    final_detection_cache[(row["condition_id"], row["key_id"])] = adapter.detect_inverted(
                         inverted[index:index + 1], keys[row["key_id"]]
                     )
             for row in selected:
@@ -592,12 +419,7 @@ def evaluate_formal_forgery(
                 attacked = open_rgb(root / row["output_image_path"])
                 if (row["condition_id"], key_id) not in completed_final:
                     initial = initial_cache[key_id]
-                    detections = final_detection_cache[(row["condition_id"], key_id)]
-                    final = detections[key_id]
-                    scores = {other: detection.score for other, detection in detections.items()}
-                    wrong = wrong_identity_metrics(
-                        key_id, scores, cutoff, lower_is_accept=watermark != "gaussian_shading",
-                    )
+                    final = final_detection_cache[(row["condition_id"], key_id)]
                     eligible, succeeded, accepted_after = attack_success(
                         "forgery", watermark, initial.score, final.score, cutoff,
                     )
@@ -608,7 +430,7 @@ def evaluate_formal_forgery(
                         "eligible": eligible, "success": succeeded,
                         "initial_score": initial.score, "final_score": final.score,
                         "score_name": final.score_name, "accepted_after": accepted_after,
-                        **wrong, "l2": quality["l2"], "linf": quality["linf"],
+                        "l2": quality["l2"], "linf": quality["linf"],
                         "rmse": float(np.sqrt(np.mean(diff ** 2))), "lpips": quality["LPIPS"],
                         "ssim": quality["SSIM"], "psnr": quality["PSNR"],
                         "attack_compute_time": float(row["optimization_compute_time"]),
@@ -617,38 +439,6 @@ def evaluate_formal_forgery(
                     atomic_write_json(
                         final_unit_dir / f"{stable_hash(row['condition_id'] + '|' + key_id)}.json",
                         final_rows[-1],
-                    )
-                unit_trajectory_rows: list[dict[str, Any]] = []
-                factors = _trajectory_factor(row)
-                for step in frozen_trajectory_steps(
-                    int(config["T_forgery_formal"]), int(config["trajectory_every"])
-                ) if factors else []:
-                    detected = trajectory_detection_cache.get((row["condition_id"], key_id, step))
-                    for factor_name, factor_value in factors:
-                        trajectory_identity = (row["condition_id"], key_id, factor_name, factor_value, step)
-                        if trajectory_identity in completed_trajectory:
-                            continue
-                        if detected is None:
-                            raise RuntimeError(f"Missing deduplicated trajectory detection: {row['condition_id']}|{key_id}|{step}")
-                        trajectory_record = {
-                            "protocol_version": PROTOCOL_VERSION, "run_id": run_id,
-                            "condition_id": row["condition_id"], "task": "forgery",
-                            "watermark": watermark, "model_setting": model_setting,
-                            "model": _model_label(model_setting), "key_id": key_id,
-                            "factor_name": factor_name, "factor_value": factor_value,
-                            "step": step, "score_name": detected.score_name,
-                            "score": detected.score, "threshold": cutoff,
-                        }
-                        trajectory_rows.append(trajectory_record)
-                        unit_trajectory_rows.append(trajectory_record)
-                        completed_trajectory.add(trajectory_identity)
-                if unit_trajectory_rows:
-                    atomic_write_json(
-                        trajectory_unit_dir / f"{stable_hash(row['condition_id'] + '|' + key_id)}.json",
-                        [
-                            value for value in trajectory_rows
-                            if value["condition_id"] == row["condition_id"] and value["key_id"] == key_id
-                        ],
                     )
                 visited_outputs += 1
                 evaluation_durations.append(time.perf_counter() - evaluation_unit_started)
@@ -664,17 +454,6 @@ def evaluate_formal_forgery(
         raise RuntimeError(f"Final evaluation produced {len(final_rows)} rows; expected {expected}")
     if len({(row["condition_id"], row["key_id"]) for row in final_rows}) != expected:
         raise RuntimeError("Final evaluation contains duplicate or missing condition/key rows")
-    steps_per_unit = len(frozen_trajectory_steps(
-        int(config["T_forgery_formal"]), int(config["trajectory_every"])
-    ))
-    expected_trajectory = (
-        len(config["model_settings"]) * len(config["watermarks"]) * 6
-        * len(key_ids) * steps_per_unit
-    )
-    if len(completed_trajectory) != expected_trajectory or len(trajectory_rows) != expected_trajectory:
-        raise RuntimeError(
-            f"Trajectory evaluation produced {len(trajectory_rows)} rows; expected {expected_trajectory}"
-        )
     atomic_csv(final_path, final_rows, FINAL_FIELDS)
     del lpips_model
     torch.cuda.empty_cache()
@@ -684,18 +463,9 @@ def evaluate_formal_forgery(
     summaries = _condition_summary(final_rows, fid_by_condition)
     atomic_csv(root / "evaluation/final_condition_summary.csv", summaries)
     table_paths = _paper_tables(summaries, root / "evaluation/tables")
-    statistics_path = _main_statistics(final_rows, root / "evaluation/statistical_tests.csv")
     diagnostic_paths = _diagnostic_tables(
         final_rows, summaries, root / "evaluation", budget=int(config["T_forgery_formal"])
     )
-    trajectory_summary = _summarize_trajectories(trajectory_rows)
-    atomic_csv(trajectory_path, trajectory_rows, TRAJECTORY_FIELDS)
-    atomic_csv(root / "evaluation/detector_trajectory_summary.csv", trajectory_summary, TRAJECTORY_SUMMARY_FIELDS)
-    thresholds = {watermark: threshold(config, watermark) for watermark in config["watermarks"]}
-    figures = [
-        plot_detector_trajectory(trajectory_summary, "forgery", factor, root / "figures", thresholds)
-        for factor in ("lambda", "N")
-    ]
     status = "PASSED" if smoke else "COMPLETE"
     if not smoke:
         import datetime
@@ -716,13 +486,13 @@ def evaluate_formal_forgery(
             f"- resolved-config哈希：`{run_manifest['source_resolved_config_hash']}`\n"
             f"- 资产锁哈希：`{run_manifest['assets_lock_hash']}`\n"
             f"- 样本manifest哈希：`{run_manifest['sample_manifest_hash']}`\n"
-            f"- 样本量：{len(key_ids)} keys；最终逐key行数：{len(final_rows)}；轨迹逐key行数：{len(trajectory_rows)}\n"
+            f"- 样本量：{len(key_ids)} keys；最终逐key行数：{len(final_rows)}\n"
             f"- 非E7资格行：{eligible_n}；成功行：{success_n}；失败行：{failed_n}\n"
             f"- 完整性检查：持久结果文件写入`checksums.sha256`后才清理临时spool\n"
             f"- 异常：无未处理异常\n\n"
             "## 结论边界\n\n"
             f"本文件只确认{PROTOCOL_VERSION}伪造批次计算与完整性链完成。"
-            "各水印、模型和方法的正式数值及统计不确定性必须从上述CSV、统计附表和固定表格读取；"
+            "各水印、模型和方法的正式数值及统计不确定性必须从上述CSV和固定表格读取；"
             "不得把历史P0、移除诊断或E7随机噪声控制计入主方法ASR排名。\n"
         ))
     persistent_paths = [
@@ -739,9 +509,7 @@ def evaluate_formal_forgery(
         root / f"protocol_snapshot/{PROTOCOL_VERSION}.md",
         root / "evaluation/final_per_key_metrics.csv",
         root / "evaluation/final_condition_summary.csv",
-        root / "evaluation/detector_trajectory_per_key.csv",
-        root / "evaluation/detector_trajectory_summary.csv",
-        *figures, *table_paths, statistics_path, *diagnostic_paths,
+        *table_paths, *diagnostic_paths,
     ]
     if not smoke:
         persistent_paths.append(root / f"{run_id}_实验总结.md")
@@ -761,11 +529,8 @@ def evaluate_formal_forgery(
         "source_resolved_config_hash": run_identity["source_resolved_config_hash"],
         "assets_lock_hash": run_identity["assets_lock_hash"],
         "run_id": run_id, "key_count": len(key_ids),
-        "final_row_count": len(final_rows), "trajectory_row_count": len(trajectory_rows),
+        "final_row_count": len(final_rows),
         "final_inversion_image_count": len(final_rows),
-        "trajectory_unique_inversion_count": len({
-            (row["condition_id"], row["key_id"], int(row["step"])) for row in trajectory_rows
-        }),
         "validated_batching": config["validated_batching"],
         "spool_cleanup_status": "PENDING", "hashes": hashes,
     }

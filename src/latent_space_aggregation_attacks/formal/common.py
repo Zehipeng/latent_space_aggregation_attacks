@@ -33,16 +33,6 @@ WATERMARK_ASSET_NAMES = {
 }
 
 
-def frozen_trajectory_steps(budget: int, every: int) -> list[int]:
-    """Return registered interval checkpoints plus the frozen final budget."""
-    if budget <= 0 or every <= 0:
-        raise ValueError("trajectory budget and interval must be positive")
-    steps = list(range(0, budget + 1, every))
-    if steps[-1] != budget:
-        steps.append(budget)
-    return steps
-
-
 def git_sha(project_root: str | Path) -> str:
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=project_root, check=True,
@@ -168,7 +158,7 @@ def formal_inputs(assets: dict[str, dict[str, Any]]) -> tuple[
 RUN_SUBDIRS = (
     "protocol_snapshot", "manifests", "logs", "prepared_inputs", "resume_state",
     "checkpoints_visualization_keys", "final_images_visualization_keys",
-    "evaluation_spool", "curve_checkpoint_spool", "evaluation", "figures",
+    "evaluation_spool", "evaluation", "figures",
 )
 
 

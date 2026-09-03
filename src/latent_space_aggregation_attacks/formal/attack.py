@@ -22,7 +22,7 @@ from ..core.atomic_io import atomic_write_bytes, atomic_write_json, atomic_write
 from ..core.conditions import conditions_for_task
 from .common import (
     assets_by_name, atomic_csv, atomic_png, canonical_512, ensure_run_layout, formal_inputs,
-    frozen_trajectory_steps, git_sha, model_config, open_rgb, read_csv,
+    git_sha, model_config, open_rgb, read_csv,
 )
 from ..core.hashing import sha256_file, stable_hash
 from ..core.ledger import LedgerEvent, append_event
@@ -265,7 +265,6 @@ def _run_iterative_condition_batches(
                     append_event(ledger_path, LedgerEvent(item["unit_id"], "RUNNING", f"batch_size={len(batch)}"))
                 callback_started = time.perf_counter()
                 checkpoint_callbacks = []
-                curve_callbacks = []
                 visualization_callbacks = []
                 for item in batch:
                     def checkpoint(step: int, image: Any, history: list[dict[str, Any]], item: dict[str, Any] = item) -> None:
@@ -277,21 +276,12 @@ def _run_iterative_condition_batches(
                             resolved_config_hash=config_hash, protocol_version=PROTOCOL_VERSION, git_sha=sha,
                         ))
                     checkpoint_callbacks.append(checkpoint)
-                    trajectory = condition.method == "proposed"
-                    def curve(step: int, image: Any, item: dict[str, Any] = item) -> None:
-                        atomic_png(
-                            root / "curve_checkpoint_spool" / condition.id / item["key_id"] / f"step_{step:04d}.png",
-                            _tensor_pil(image),
-                        )
-                    curve_callbacks.append(curve if trajectory else None)
                     def visualize(step: int, image: Any, item: dict[str, Any] = item) -> None:
                         atomic_png(
                             root / "checkpoints_visualization_keys" / condition.id / item["key_id"] / f"step_{step:04d}.png",
                             _tensor_pil(image),
                         )
                     visualization_callbacks.append(visualize if item["key_id"] in visualization_keys else None)
-                    if trajectory and start_step == 0:
-                        curve(0, item["source_tensor"])
                 result = optimize_fixed_budget_batch(
                     torch.cat([item["source_tensor"] for item in batch]),
                     torch.cat([item["target_latent"] for item in batch]), vae,
@@ -302,7 +292,6 @@ def _run_iterative_condition_batches(
                     original_images=torch.cat([item["source_tensor"] for item in batch]),
                     histories=[item["history"] for item in batch],
                     checkpoint_callbacks=checkpoint_callbacks,
-                    curve_callbacks=curve_callbacks,
                     visualization_callbacks=visualization_callbacks,
                 )
                 amortized_time = result.optimization_compute_time / len(batch)
@@ -499,28 +488,18 @@ def run_formal_forgery_attack(
                             resolved_config_hash=config_hash, protocol_version=PROTOCOL_VERSION,
                             git_sha=sha,
                         ))
-                    trajectory = condition.method == "proposed"
-                    def curve(step: int, image: Any) -> None:
-                        if trajectory:
-                            atomic_png(
-                                root / "curve_checkpoint_spool" / condition.id / key_id / f"step_{step:04d}.png",
-                                _tensor_pil(image),
-                            )
                     def visualize(step: int, image: Any) -> None:
                         if key_id in visualization_keys:
                             atomic_png(
                                 root / "checkpoints_visualization_keys" / condition.id / key_id / f"step_{step:04d}.png",
                                 _tensor_pil(image),
                             )
-                    if trajectory and start_step == 0:
-                        curve(0, source_tensor)
                     result = optimize_fixed_budget(
                         source_tensor, target_latent, vae,
                         lambda_pixel=float(condition.lambda_pixel),
                         learning_rate=float(config["learning_rate"]), final_step=budget,
                         start_step=start_step, current_image=current, original_image=source_tensor,
                         history=history, checkpoint_callback=checkpoint,
-                        curve_callback=curve if trajectory else None,
                         visualization_callback=visualize if key_id in visualization_keys else None,
                     )
                     final_pil = _tensor_pil(result.image)
@@ -564,22 +543,12 @@ def run_formal_forgery_attack(
     identities = {row["condition_id"] + "|" + row["key_id"] for row in rows}
     if len(rows) != expected or len(identities) != expected:
         raise RuntimeError(f"Formal forgery produced {len(rows)} outputs; expected {expected}")
-    trajectory_files = 0
     for row in rows:
         final_step = int(row["final_step"])
         if row["method"] in {"jain", "proposed"} and final_step != budget:
             raise RuntimeError(f"Iterative unit did not reach the frozen budget: {row['condition_id']}|{row['key_id']}")
         if row["method"] == "simple_averaging" and final_step != 0:
             raise RuntimeError("Simple Averaging must be recorded as a non-iterative method")
-        if row["method"] == "proposed":
-            checkpoints = list((root / "curve_checkpoint_spool" / row["condition_id"] / row["key_id"]).glob("step_*.png"))
-            expected_checkpoints = len(frozen_trajectory_steps(budget, int(config["trajectory_every"])))
-            if len(checkpoints) != expected_checkpoints:
-                raise RuntimeError(
-                    f"Trajectory spool is incomplete for {row['condition_id']}|{row['key_id']}: "
-                    f"{len(checkpoints)}/{expected_checkpoints}"
-                )
-            trajectory_files += len(checkpoints)
     control_record_dir = root / "manifests/e7_control_units"
     control_record_dir.mkdir(parents=True, exist_ok=True)
     import json
@@ -632,7 +601,6 @@ def run_formal_forgery_attack(
     report = {
         "status": "ATTACK_COMPLETE", "run_id": run_id, "unit_count": expected,
         "e7_control_unit_count": expected, "total_output_count": len(all_rows),
-        "trajectory_checkpoint_count": trajectory_files,
         "validated_batching": config["validated_batching"],
         "reference_latent_cache_file_count": len(list((root / "reference_latent_cache").glob("*.pt"))),
     }

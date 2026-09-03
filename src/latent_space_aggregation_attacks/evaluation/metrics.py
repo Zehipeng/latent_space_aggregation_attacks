@@ -58,21 +58,6 @@ def perturbation_metrics(original: np.ndarray, attacked: np.ndarray) -> dict[str
     }
 
 
-def wrong_identity_metrics(target_id: str, scores: dict[str, float], threshold: float, lower_is_accept: bool) -> dict[str, Any]:
-    if target_id not in scores:
-        raise ValueError("Target identity is absent")
-    ordered = sorted(scores, key=scores.get, reverse=not lower_is_accept)
-    wrong = [key for key in scores if key != target_id]
-    wrong_accepts = sum((scores[key] <= threshold) if lower_is_accept else (scores[key] >= threshold) for key in wrong)
-    return {
-        "wrong_key_checked": len(wrong),
-        "wrong_key_accept_count": wrong_accepts,
-        "any_wrong_key_accept": bool(wrong_accepts),
-        "target_rank": ordered.index(target_id) + 1,
-        "target_top1": ordered[0] == target_id,
-    }
-
-
 def validate_final_row(row: dict[str, Any], task_budgets: dict[str, int]) -> None:
     required = {
         "protocol_version", "run_id", "condition_id", "watermark", "model_setting",
