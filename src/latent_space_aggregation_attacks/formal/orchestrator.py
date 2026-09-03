@@ -129,7 +129,9 @@ def _read_manifest_identity(path: Path) -> dict[str, Any]:
     return value
 
 
-def _eta_report(smoke_dir: Path, timings: dict[str, float], output: Path) -> dict[str, Any]:
+def _eta_report(
+    smoke_dir: Path, timings: dict[str, float], output: Path, *, config: dict[str, Any],
+) -> dict[str, Any]:
     attack_rows = read_csv(smoke_dir / "manifests/attack_outputs.csv")
     iterative = [float(row["optimization_compute_time"]) for row in attack_rows if int(row["final_step"]) > 0]
     scale = 100.0
@@ -166,8 +168,11 @@ def _eta_report(smoke_dir: Path, timings: dict[str, float], output: Path) -> dic
             "torch_cuda_version": phase_runtime["attack"]["torch_cuda_version"],
             "python_version": phase_runtime["attack"]["python_version"],
             "parallel_workers": 1,
-            "attack_batch_size": 4,
-            "inversion_batch_size": 8,
+            "attack_batch_size": int(config["validated_batching"]["attack_batch_size"]),
+            "inversion_batch_size": int(config["validated_batching"]["inversion_batch_size"]),
+            "reference_encode_batch_size": int(
+                config["validated_batching"]["reference_encode_batch_size"]
+            ),
         },
         "stage_measurements": phase_runtime,
         "formal_stage_counts": {
@@ -238,11 +243,13 @@ def run_formal_forgery(
                 phase=phase, config_path=smoke_config_path, assets_lock_path=assets_lock_path,
                 run_dir=smoke_dir, run_id=run_id, key_count=2, project_root=project, smoke=True,
             )
-        _eta_report(smoke_dir, smoke_timings, smoke_dir / "runtime_estimate.json")
+        _eta_report(
+            smoke_dir, smoke_timings, smoke_dir / "runtime_estimate.json", config=config,
+        )
     elif not (smoke_dir / "runtime_estimate.json").is_file():
         _eta_report(
             smoke_dir, _recorded_smoke_timings(output_root, run_id),
-            smoke_dir / "runtime_estimate.json",
+            smoke_dir / "runtime_estimate.json", config=config,
         )
     smoke_report = json.loads(smoke_report_path.read_text(encoding="utf-8"))
     smoke_identity = _read_manifest_identity(smoke_dir / "manifests/run_manifest.json")

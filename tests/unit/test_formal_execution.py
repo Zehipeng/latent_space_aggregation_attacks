@@ -100,9 +100,18 @@ def test_eta_report_retains_cleaned_spool_peak_and_runtime_metadata(tmp_path):
     report = _eta_report(
         tmp_path, {"prepare": 1.0, "attack": 10.0, "evaluate": 2.0},
         tmp_path / "runtime_estimate.json",
+        config={"validated_batching": {
+            "attack_batch_size": 1,
+            "inversion_batch_size": 1,
+            "reference_encode_batch_size": 1,
+            "require_equivalence_gate": False,
+        }},
     )
     assert report["estimated_peak_spool_bytes"] == 12_300
     assert report["hardware_software"]["gpu_name"] == "test-gpu"
+    assert report["hardware_software"]["attack_batch_size"] == 1
+    assert report["hardware_software"]["inversion_batch_size"] == 1
+    assert report["hardware_software"]["reference_encode_batch_size"] == 1
     assert report["p90_seconds"] >= report["p50_seconds"]
 
 

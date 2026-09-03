@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -469,7 +470,6 @@ def evaluate_formal_forgery(
     root = Path(run_dir)
     report_path = root / ("smoke_report.json" if smoke else "evaluation_report.json")
     if report_path.is_file():
-        import json
         prior_report = json.loads(report_path.read_text(encoding="utf-8"))
         if _report_artifacts_are_valid(root, prior_report):
             if prior_report.get("spool_cleanup_status") != "COMPLETE":
@@ -753,8 +753,14 @@ def evaluate_formal_forgery(
         root / "checksums.sha256",
         "".join(f"{digest}  {name}\n" for name, digest in sorted(hashes.items())),
     )
+    run_identity = json.loads((root / "manifests/run_manifest.json").read_text(encoding="utf-8"))
     report = {
-        "status": status, "run_id": run_id, "key_count": len(key_ids),
+        "status": status,
+        "protocol_version": run_identity["protocol_version"],
+        "git_sha": run_identity["git_sha"],
+        "source_resolved_config_hash": run_identity["source_resolved_config_hash"],
+        "assets_lock_hash": run_identity["assets_lock_hash"],
+        "run_id": run_id, "key_count": len(key_ids),
         "final_row_count": len(final_rows), "trajectory_row_count": len(trajectory_rows),
         "final_inversion_image_count": len(final_rows),
         "trajectory_unique_inversion_count": len({
