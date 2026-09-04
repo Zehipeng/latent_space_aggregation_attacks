@@ -5,7 +5,8 @@ import json
 from PIL import Image
 from scipy.linalg import sqrtm
 
-from latent_space_aggregation_attacks.formal.attack import _matched_noise
+from latent_space_aggregation_attacks.formal.attack import _cleanup_consumed_reference_images, _matched_noise
+from latent_space_aggregation_attacks.core.hashing import sha256_file
 from latent_space_aggregation_attacks.evaluation.metrics import perturbation_metrics
 from latent_space_aggregation_attacks.formal.evaluate import FINAL_FIELDS, _cleanup_validated_spools, _condition_summary, _fid
 from latent_space_aggregation_attacks.formal.orchestrator import _eta_report
@@ -87,6 +88,35 @@ def test_validated_spool_cleanup_is_scoped_and_idempotent(tmp_path):
     assert _cleanup_validated_spools(tmp_path) == result
 
 
+def test_reference_images_are_cleaned_only_after_primary_outputs_verify(tmp_path):
+    reference = tmp_path / "prepared_inputs/references/model/watermark/key/ref_00.png"
+    reference.parent.mkdir(parents=True)
+    reference.write_bytes(b"reference")
+    output = tmp_path / "evaluation_spool/condition/key.png"
+    output.parent.mkdir(parents=True)
+    output.write_bytes(b"output")
+    manifests = tmp_path / "manifests"
+    manifests.mkdir()
+    with (manifests / "reference_manifest.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["image_path", "image_sha256"])
+        writer.writeheader()
+        writer.writerow({
+            "image_path": reference.relative_to(tmp_path).as_posix(),
+            "image_sha256": sha256_file(reference),
+        })
+    (tmp_path / "preparation_report.json").write_text(
+        json.dumps({"selected_reference_count": 1}), encoding="utf-8",
+    )
+    result = _cleanup_consumed_reference_images(tmp_path, [{
+        "condition_id": "condition", "key_id": "key",
+        "output_image_path": output.relative_to(tmp_path).as_posix(),
+        "output_sha256": sha256_file(output),
+    }], 1)
+    assert result["status"] == "COMPLETE" and result["removed_files"] == 1
+    assert not reference.exists() and not (tmp_path / "prepared_inputs/references").exists()
+    assert output.exists()
+
+
 def test_eta_report_retains_cleaned_spool_peak_and_runtime_metadata(tmp_path):
     manifest = tmp_path / "manifests/attack_outputs.csv"
     manifest.parent.mkdir(parents=True)
@@ -110,6 +140,9 @@ def test_eta_report_retains_cleaned_spool_peak_and_runtime_metadata(tmp_path):
     (logs / "spool_cleanup.json").write_text(
         json.dumps({"removed_bytes": 123}), encoding="utf-8",
     )
+    (logs / "reference_image_cleanup.json").write_text(
+        json.dumps({"removed_bytes": 50}), encoding="utf-8",
+    )
     report = _eta_report(
         tmp_path, {"prepare": 1.0, "attack": 10.0, "evaluate": 2.0},
         tmp_path / "runtime_estimate.json",
@@ -121,6 +154,7 @@ def test_eta_report_retains_cleaned_spool_peak_and_runtime_metadata(tmp_path):
         }},
     )
     assert report["estimated_peak_spool_bytes"] == 12_300
+    assert report["estimated_selected_reference_bytes"] == 5_000
     assert report["hardware_software"]["gpu_name"] == "test-gpu"
     assert report["hardware_software"]["attack_batch_size"] == 1
     assert report["hardware_software"]["inversion_batch_size"] == 1

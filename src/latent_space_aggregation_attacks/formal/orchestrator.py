@@ -147,6 +147,11 @@ def _eta_report(
         spool_bytes = int(json.loads(cleanup_report.read_text(encoding="utf-8"))["removed_bytes"])
     else:
         spool_bytes = _tree_bytes(smoke_dir / "evaluation_spool")
+    reference_cleanup_report = smoke_dir / "logs/reference_image_cleanup.json"
+    reference_bytes = (
+        int(json.loads(reference_cleanup_report.read_text(encoding="utf-8"))["removed_bytes"])
+        if reference_cleanup_report.is_file() else _tree_bytes(smoke_dir / "prepared_inputs/references")
+    )
     phase_runtime = {
         phase: json.loads((smoke_dir / f"logs/{phase}_runtime.json").read_text(encoding="utf-8"))
         for phase in ("prepare", "attack", "evaluate")
@@ -188,13 +193,21 @@ def _eta_report(
         "p90_seconds": p90_seconds,
         "estimated_completion_p50_utc": (generated_at + timedelta(seconds=p50_seconds)).isoformat(),
         "estimated_completion_p90_utc": (generated_at + timedelta(seconds=p90_seconds)).isoformat(),
-        "estimated_peak_spool_bytes": int(spool_bytes * scale),
+        # Reference PNGs coexist with primary outputs only. They are verified and
+        # removed before E7 doubles the evaluation spool.
+        "estimated_peak_spool_bytes": int(max(
+            spool_bytes * scale,
+            reference_bytes * scale + spool_bytes * scale / 2,
+        )),
+        "estimated_selected_reference_bytes": int(reference_bytes * scale),
+        "reference_retention": "deleted_after_verified_primary_attack_consumption",
         "smoke_phase_seconds": timings,
         "notes": [
             "ETA is hardware-dependent and is not a completion promise.",
             "The estimate includes preparation, attack, final target-key evaluation, quality metrics and reporting.",
             "Preparation and evaluation are conservatively scaled from their complete 2-key phase wall times.",
             "Attack P50/P90 use the per-unit compute times recorded across every smoke method and condition.",
+            "The disk peak accounts for selected reference PNGs overlapping only with primary outputs; reference PNGs are deleted before E7.",
             "Full execution requires an explicit --approve-full-run flag.",
         ],
     }
@@ -226,7 +239,7 @@ def run_formal_forgery(
         regression_report_path, config=config, assets_lock=assets_lock, project_root=project,
     )
     if config["validated_batching"]["require_equivalence_gate"]:
-        raise RuntimeError("formal_protocol_v1.21 prohibits batched formal execution")
+        raise RuntimeError("formal_protocol_v1.22 prohibits batched formal execution")
     output_root = Path(config["output_root"])
     smoke_dir = output_root / "smoke/formal_forgery" / f"{run_id}_smoke"
     full_dir = output_root / "formal_forgery" / run_id

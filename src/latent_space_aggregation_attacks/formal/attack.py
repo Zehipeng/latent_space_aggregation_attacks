@@ -184,12 +184,70 @@ def _reference_rows(run_dir: Path) -> dict[tuple[str, str, str], list[dict[str, 
     return grouped
 
 
+def _cleanup_consumed_reference_images(root: Path, rows: list[dict[str, Any]], expected: int) -> dict[str, Any]:
+    """Delete selected reference PNGs only after every primary attack output is verified."""
+    report_path = root / "logs/reference_image_cleanup.json"
+    if report_path.is_file():
+        import json
+        return json.loads(report_path.read_text(encoding="utf-8"))
+    (root / "logs").mkdir(parents=True, exist_ok=True)
+    identities = {row["condition_id"] + "|" + row["key_id"] for row in rows}
+    if len(rows) != expected or len(identities) != expected:
+        raise RuntimeError("Reference images cannot be cleaned before all primary outputs complete")
+    for row in rows:
+        output = root / row["output_image_path"]
+        if not output.is_file() or sha256_file(output) != row["output_sha256"]:
+            raise RuntimeError(f"Reference cleanup blocked by invalid attack output: {output}")
+    reference_rows = read_csv(root / "manifests/reference_manifest.csv")
+    preparation = __import__("json").loads(
+        (root / "preparation_report.json").read_text(encoding="utf-8")
+    )
+    if len(reference_rows) != int(preparation["selected_reference_count"]):
+        raise RuntimeError("Reference cleanup blocked by an incomplete reference manifest")
+    inventory = []
+    for row in reference_rows:
+        path = (root / row["image_path"]).resolve()
+        allowed = (root / "prepared_inputs/references").resolve()
+        if not path.is_relative_to(allowed):
+            raise RuntimeError(f"Unsafe reference cleanup path: {path}")
+        if not path.is_file() or sha256_file(path) != row["image_sha256"]:
+            raise RuntimeError(f"Reference cleanup blocked by missing or corrupt image: {path}")
+        inventory.append({
+            "path": path.relative_to(root).as_posix(),
+            "size_bytes": path.stat().st_size,
+            "sha256": row["image_sha256"],
+        })
+    atomic_write_json(root / "logs/reference_image_cleanup_inventory.json", inventory)
+    for item in inventory:
+        (root / item["path"]).unlink()
+    reference_root = root / "prepared_inputs/references"
+    for directory in sorted(
+        (path for path in reference_root.rglob("*") if path.is_dir()),
+        key=lambda path: len(path.parts), reverse=True,
+    ):
+        directory.rmdir()
+    reference_root.rmdir()
+    report = {
+        "status": "COMPLETE",
+        "removed_files": len(inventory),
+        "removed_bytes": sum(int(item["size_bytes"]) for item in inventory),
+        "trigger": "all_primary_attack_outputs_sha256_verified",
+        "retained_reference_pngs": 0,
+    }
+    atomic_write_json(report_path, report)
+    append_event(
+        root / "logs/unit_ledger.jsonl",
+        LedgerEvent("__consumed_reference_image_cleanup__", "COMPLETE", str(report)),
+    )
+    return report
+
+
 def _run_iterative_condition_batches(
     *, condition: Any, key_ids: list[str], completed: set[str], root: Path,
     target_by_key: dict[str, dict[str, str]], clean_by_key: dict[str, list[dict[str, str]]],
     references_by_group: dict[tuple[str, str, str], list[dict[str, str]]], vae: Any,
     config: dict[str, Any], config_hash: str, sha: str, run_id: str, ledger_path: Path,
-    unit_record_dir: Path, visualization_keys: set[str], rows: list[dict[str, Any]], total: int,
+    unit_record_dir: Path, rows: list[dict[str, Any]], total: int,
 ) -> None:
     """Execute one iterative condition in independent, resume-compatible batches."""
     import torch
@@ -265,7 +323,6 @@ def _run_iterative_condition_batches(
                     append_event(ledger_path, LedgerEvent(item["unit_id"], "RUNNING", f"batch_size={len(batch)}"))
                 callback_started = time.perf_counter()
                 checkpoint_callbacks = []
-                visualization_callbacks = []
                 for item in batch:
                     def checkpoint(step: int, image: Any, history: list[dict[str, Any]], item: dict[str, Any] = item) -> None:
                         elapsed = item["prior_time"] + (time.perf_counter() - callback_started) / len(batch)
@@ -276,12 +333,6 @@ def _run_iterative_condition_batches(
                             resolved_config_hash=config_hash, protocol_version=PROTOCOL_VERSION, git_sha=sha,
                         ))
                     checkpoint_callbacks.append(checkpoint)
-                    def visualize(step: int, image: Any, item: dict[str, Any] = item) -> None:
-                        atomic_png(
-                            root / "checkpoints_visualization_keys" / condition.id / item["key_id"] / f"step_{step:04d}.png",
-                            _tensor_pil(image),
-                        )
-                    visualization_callbacks.append(visualize if item["key_id"] in visualization_keys else None)
                 result = optimize_fixed_budget_batch(
                     torch.cat([item["source_tensor"] for item in batch]),
                     torch.cat([item["target_latent"] for item in batch]), vae,
@@ -292,7 +343,6 @@ def _run_iterative_condition_batches(
                     original_images=torch.cat([item["source_tensor"] for item in batch]),
                     histories=[item["history"] for item in batch],
                     checkpoint_callbacks=checkpoint_callbacks,
-                    visualization_callbacks=visualization_callbacks,
                 )
                 amortized_time = result.optimization_compute_time / len(batch)
                 for index, item in enumerate(batch):
@@ -307,8 +357,6 @@ def _run_iterative_condition_batches(
                     final_pil = _tensor_pil(image)
                     relative = Path("evaluation_spool") / condition.id / f"{item['key_id']}.png"
                     output_hash = atomic_png(root / relative, final_pil)
-                    if item["key_id"] in visualization_keys:
-                        atomic_png(root / "final_images_visualization_keys" / condition.id / f"{item['key_id']}.png", final_pil)
                     row = {
                         "protocol_version": PROTOCOL_VERSION, "run_id": run_id,
                         "condition_id": condition.id, "experiment": condition.experiment,
@@ -412,7 +460,6 @@ def run_formal_forgery_attack(
     vae = load_proxy_vae(model_config(assets, "same_model_sd14_target_sd14_vae_proxy"), offline=True)
     device, dtype = next(vae.parameters()).device, next(vae.parameters()).dtype
     budget = int(config["T_forgery_formal"])
-    visualization_keys = set(config["visualization_key_ids"])
     for condition in conditions:
         if condition.method in {"jain", "proposed"}:
             _run_iterative_condition_batches(
@@ -420,7 +467,7 @@ def run_formal_forgery_attack(
                 target_by_key=target_by_key, clean_by_key=clean_by_key,
                 references_by_group=references_by_group, vae=vae, config=config,
                 config_hash=config_hash, sha=sha, run_id=run_id, ledger_path=ledger_path,
-                unit_record_dir=unit_record_dir, visualization_keys=visualization_keys,
+                unit_record_dir=unit_record_dir,
                 rows=rows, total=total_with_e7,
             )
             atomic_csv(results_path, rows, ATTACK_FIELDS)
@@ -488,19 +535,12 @@ def run_formal_forgery_attack(
                             resolved_config_hash=config_hash, protocol_version=PROTOCOL_VERSION,
                             git_sha=sha,
                         ))
-                    def visualize(step: int, image: Any) -> None:
-                        if key_id in visualization_keys:
-                            atomic_png(
-                                root / "checkpoints_visualization_keys" / condition.id / key_id / f"step_{step:04d}.png",
-                                _tensor_pil(image),
-                            )
                     result = optimize_fixed_budget(
                         source_tensor, target_latent, vae,
                         lambda_pixel=float(condition.lambda_pixel),
                         learning_rate=float(config["learning_rate"]), final_step=budget,
                         start_step=start_step, current_image=current, original_image=source_tensor,
                         history=history, checkpoint_callback=checkpoint,
-                        visualization_callback=visualize if key_id in visualization_keys else None,
                     )
                     final_pil = _tensor_pil(result.image)
                     final_step = result.final_step
@@ -513,8 +553,6 @@ def run_formal_forgery_attack(
                         git_sha=sha,
                     ))
                 output_hash = atomic_png(root / relative, final_pil)
-                if key_id in visualization_keys:
-                    atomic_png(root / "final_images_visualization_keys" / condition.id / f"{key_id}.png", final_pil)
                 row = {
                     "protocol_version": PROTOCOL_VERSION, "run_id": run_id,
                     "condition_id": condition.id, "experiment": condition.experiment,
@@ -549,6 +587,7 @@ def run_formal_forgery_attack(
             raise RuntimeError(f"Iterative unit did not reach the frozen budget: {row['condition_id']}|{row['key_id']}")
         if row["method"] == "simple_averaging" and final_step != 0:
             raise RuntimeError("Simple Averaging must be recorded as a non-iterative method")
+    reference_cleanup = _cleanup_consumed_reference_images(root, rows, expected)
     control_record_dir = root / "manifests/e7_control_units"
     control_record_dir.mkdir(parents=True, exist_ok=True)
     import json
@@ -572,11 +611,6 @@ def run_formal_forgery_attack(
         controlled, target_l2, control_l2, control_linf = _matched_noise(source, attacked, seed)
         relative = Path("evaluation_spool/e7_matched_noise") / parent["condition_id"] / f"{parent['key_id']}.png"
         output_hash = atomic_png(root / relative, controlled)
-        if parent["key_id"] in visualization_keys:
-            atomic_png(
-                root / "final_images_visualization_keys" / control_condition / f"{parent['key_id']}.png",
-                controlled,
-            )
         record = {
             **parent, "condition_id": control_condition, "experiment": "E7",
             "method": "matched_gaussian_noise", "seed": seed, "final_step": 0,
@@ -603,6 +637,7 @@ def run_formal_forgery_attack(
         "e7_control_unit_count": expected, "total_output_count": len(all_rows),
         "validated_batching": config["validated_batching"],
         "reference_latent_cache_file_count": len(list((root / "reference_latent_cache").glob("*.pt"))),
+        "reference_image_cleanup": reference_cleanup,
     }
     atomic_write_json(attack_report_path, report)
     return report

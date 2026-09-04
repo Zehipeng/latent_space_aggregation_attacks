@@ -63,12 +63,12 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("resume_every must be 50")
     if mode in {"formal", "smoke"}:
         if config.get("output_root") != "/root/autodl-tmp/outputs":
-            raise ValueError("formal_protocol_v1.21 output_root must be /root/autodl-tmp/outputs")
+            raise ValueError("formal_protocol_v1.22 output_root must be /root/autodl-tmp/outputs")
         budgets = (config.get("T_forgery_formal"), config.get("T_removal_formal"))
         if any(value in {None, "UNFROZEN"} for value in budgets):
             raise ValueError("Task-level formal budgets are not frozen; formal execution is prohibited")
         if tuple(int(value) for value in budgets) != (150, 150):
-            raise ValueError("formal_protocol_v1.21 requires both task budgets to equal 150")
+            raise ValueError("formal_protocol_v1.22 requires both task budgets to equal 150")
         batching = config.get("validated_batching", {})
         if batching != {
             "attack_batch_size": 1,
@@ -76,15 +76,15 @@ def validate_config(config: dict[str, Any]) -> None:
             "reference_encode_batch_size": 1,
             "require_equivalence_gate": False,
         }:
-            raise ValueError("formal_protocol_v1.21 requires scalar attack, inversion and reference encoding")
+            raise ValueError("formal_protocol_v1.22 requires scalar attack, inversion and reference encoding")
         if float(config.get("main_beta", -1)) != 1.5:
             raise ValueError("formal removal main_beta must equal 1.5")
         if config.get("online_detection", False) or config.get("early_stop", False):
             raise ValueError("Formal attack must not use online detection or early stopping")
         if config.get("formal_tasks") != ["forgery", "removal"]:
             raise ValueError("Formal configuration must register forgery and removal in order")
-        if config.get("visualization_key_ids") != ["key_000", "key_100", "key_199"]:
-            raise ValueError("Formal visualization keys are protocol-locked")
+        if config.get("visualization_key_ids") != []:
+            raise ValueError("formal_protocol_v1.22 disables persistent experiment images")
         validity = config.get("reference_validity", {})
         if (
             validity.get("selection_policy") != "first_accepted_from_preregistered_candidates"

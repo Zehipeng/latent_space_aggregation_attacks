@@ -499,6 +499,8 @@ def evaluate_formal_forgery(
         root / "manifests/reference_candidate_manifest.csv",
         root / "manifests/reference_selection_control.csv",
         root / "manifests/reference_manifest.csv",
+        root / "logs/reference_image_cleanup_inventory.json",
+        root / "logs/reference_image_cleanup.json",
         root / "evaluation/e0_original_detection.csv",
         root / "manifests/attack_outputs.csv",
         root / "protocol_snapshot/source_config.yaml",

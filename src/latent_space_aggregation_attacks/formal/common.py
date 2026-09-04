@@ -157,7 +157,6 @@ def formal_inputs(assets: dict[str, dict[str, Any]]) -> tuple[
 
 RUN_SUBDIRS = (
     "protocol_snapshot", "manifests", "logs", "prepared_inputs", "resume_state",
-    "checkpoints_visualization_keys", "final_images_visualization_keys",
     "evaluation_spool", "evaluation", "figures",
 )
 

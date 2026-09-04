@@ -36,7 +36,6 @@ def optimize_fixed_budget(
     history: list[dict[str, float | int]] | None = None,
     checkpoint_callback: Callable[[int, Any, list[dict[str, float | int]]], None] | None = None,
     curve_callback: Callable[[int, Any], None] | None = None,
-    visualization_callback: Callable[[int, Any], None] | None = None,
     stop_callback: Callable[[int, Any], bool] | None = None,
 ) -> OptimizationResult:
     """Detector-free, fixed-budget, mean-reduction pixel gradient descent."""
@@ -80,15 +79,11 @@ def optimize_fixed_budget(
             checkpoint_callback(step, current, records)
         if step % 100 == 0 and curve_callback:
             curve_callback(step, current)
-        if step % 150 == 0 and visualization_callback:
-            visualization_callback(step, current)
         if should_stop:
             stopped_early = True
             break
     if not stopped_early and completed_step % 100 and curve_callback:
         curve_callback(completed_step, current)
-    if completed_step % 150 and visualization_callback:
-        visualization_callback(completed_step, current)
     return OptimizationResult(current, completed_step, records, time.perf_counter() - started, stopped_early)
 
 
@@ -106,7 +101,6 @@ def optimize_fixed_budget_batch(
     histories: list[list[dict[str, float | int]]] | None = None,
     checkpoint_callbacks: list[Callable[[int, Any, list[dict[str, float | int]]], None] | None] | None = None,
     curve_callbacks: list[Callable[[int, Any], None] | None] | None = None,
-    visualization_callbacks: list[Callable[[int, Any], None] | None] | None = None,
 ) -> BatchOptimizationResult:
     """Optimize independent units together while preserving scalar per-sample gradients.
 
@@ -138,8 +132,7 @@ def optimize_fixed_budget_batch(
         raise ValueError("one loss history is required per batch sample")
     checkpoints = checkpoint_callbacks or [None] * batch_size
     curves = curve_callbacks or [None] * batch_size
-    visualizations = visualization_callbacks or [None] * batch_size
-    if not all(len(values) == batch_size for values in (checkpoints, curves, visualizations)):
+    if not all(len(values) == batch_size for values in (checkpoints, curves)):
         raise ValueError("one callback slot is required per batch sample")
     lambdas = torch.as_tensor(lambda_pixels, device=device, dtype=dtype)
     vae.eval().requires_grad_(False)
@@ -164,14 +157,8 @@ def optimize_fixed_budget_batch(
                 checkpoints[index](step, current[index:index + 1], records[index])
             if step % 100 == 0 and curves[index]:
                 curves[index](step, current[index:index + 1])
-            if step % 150 == 0 and visualizations[index]:
-                visualizations[index](step, current[index:index + 1])
     if final_step % 100:
         for index, callback in enumerate(curves):
-            if callback:
-                callback(final_step, current[index:index + 1])
-    if final_step % 150:
-        for index, callback in enumerate(visualizations):
             if callback:
                 callback(final_step, current[index:index + 1])
     return BatchOptimizationResult(current, final_step, records, time.perf_counter() - started)
