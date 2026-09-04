@@ -4,13 +4,13 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from latent_space_aggregation_attacks.core.preflight import preflight
-from latent_space_aggregation_attacks.formal.orchestrator import run_formal_forgery
+from latent_space_aggregation_attacks.formal.orchestrator import run_formal_forgery, run_formal_removal
 
 def main() -> None:
     parser=argparse.ArgumentParser(description="Protocol-locked scalar formal orchestrator")
     parser.add_argument("--config",required=True); parser.add_argument("--assets-lock",required=True)
     parser.add_argument("--offline",action="store_true"); parser.add_argument("--preflight-only",action="store_true")
-    parser.add_argument("--task", choices=("forgery",), default="forgery")
+    parser.add_argument("--task", choices=("forgery", "removal"), default="forgery")
     parser.add_argument("--smoke-config")
     parser.add_argument("--tree-ring-regression-report")
     parser.add_argument("--run-id")
@@ -28,7 +28,8 @@ def main() -> None:
     smoke = preflight(args.smoke_config, args.assets_lock, offline=args.offline)
     if smoke["config"]["run_mode"] != "smoke" or int(smoke["config"]["key_count"]) != 2:
         parser.error("--smoke-config must be the protocol-locked 2-key smoke configuration")
-    value = run_formal_forgery(
+    orchestrate = run_formal_forgery if args.task == "forgery" else run_formal_removal
+    value = orchestrate(
         config=result["config"], assets_lock=result["assets"], config_path=args.config,
         smoke_config_path=args.smoke_config, assets_lock_path=args.assets_lock, run_id=args.run_id,
         regression_report_path=args.tree_ring_regression_report,

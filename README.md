@@ -159,7 +159,46 @@ python scripts/run_formal.py \
 第二条命令复核回归报告及五项smoke签名后才运行200-key。中断后原样重跑：完整单元经图像
 哈希校验后跳过，活动迭代单元从最近50步状态恢复。主攻击全部完成并校验后，选中参考PNG
 在E7开始前按清单删除；评价临时spool仅在持久CSV、表图和哈希全部验证后自动清理。
-当前正式编排范围为伪造E0/E1/E3/E4/E7；正式移除入口仍未开放。
+当前正式编排支持按`--task forgery`运行伪造E0/E1/E3/E4/E7，或按
+`--task removal`运行移除E0/E2/E3/E4/E5/E6/E7。两类任务使用独立run目录，
+各自执行同配置2-key smoke和人工批准门禁。
+
+## 正式移除运行
+
+移除使用与伪造相同的回归报告、正式配置、smoke配置和两次调用门禁。第一条命令运行
+`key_000/key_001`的完整移除矩阵并生成GPU实测ETA与磁盘报告：
+
+```bash
+python scripts/run_formal.py \
+  --config configs/current/formal_v1p22.yaml \
+  --smoke-config configs/current/smoke_v1p22_2key.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p22.json \
+  --task removal \
+  --run-id <run_id> \
+  --offline \
+  --smoke-only
+```
+
+必须先检查`outputs/smoke/formal_removal/<run_id>_smoke/smoke_report.json`为`PASSED`，
+再核对同目录`runtime_estimate.json`。获得用户明确批准后，原run-id执行：
+
+```bash
+python scripts/run_formal.py \
+  --config configs/current/formal_v1p22.yaml \
+  --smoke-config configs/current/smoke_v1p22_2key.yaml \
+  --assets-lock local_assets/assets.lock.json \
+  --tree-ring-regression-report /root/autodl-tmp/outputs/regression/tree_ring_v1p22.json \
+  --task removal \
+  --run-id <run_id> \
+  --offline \
+  --approve-full-run
+```
+
+移除目标固定为每个模型/水印/key的`R_N[0]`。准备阶段将其以相同PNG字节复制到临时
+`evaluation_spool/removal_targets/`，从而允许主攻击完成后按协议删除全部参考PNG；该临时
+目标与攻击、E6和E7输出在最终检测、质量、FID及哈希校验后一起清理。E2主设置在E3/E4/E5
+中按condition identity复用，E6不生成E7匹配噪声控制。
 
 ## 历史P0与诊断
 
@@ -212,6 +251,5 @@ Gaussian Shading官方ChaCha20变体及FPR=`1e-6`对应的bit-accuracy阈值。�
 选中图像哈希；不足25张时批次失败。启动时同时核对三种官方代码revision。正式配置中的
 `T_forgery_formal/T_removal_formal`必须均为150，移除beta网格必须为`[1.0,1.5,2.0]`，正式移除主设置必须为`main_beta=1.5`。
 
-`scripts/run_formal.py`已接通正式伪造的准备、三方法攻击、独立最终目标密钥/质量/FID评价、
-最终表图、恢复和smoke门禁。v1.22不计算错误密钥接受率、Target rank、Top-1、RMSE、Wilson置信区间、配对检验或Holm校正，也不保存任何正式实验PNG。实际GPU smoke通过前不得启动200-key；正式移除
-仍须在其独立执行链完成后另行开放。
+`scripts/run_formal.py`已接通正式伪造与移除的准备、三方法攻击、独立最终目标密钥/质量/FID评价、
+最终表图、恢复和smoke门禁。v1.22不计算错误密钥接受率、Target rank、Top-1、RMSE、Wilson置信区间、配对检验或Holm校正，也不保存任何正式实验PNG。实际GPU smoke通过且ETA/磁盘报告经用户批准前不得启动200-key。

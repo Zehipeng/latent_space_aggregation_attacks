@@ -198,7 +198,7 @@ def _fid(first: np.ndarray, second: np.ndarray) -> float:
     return float(max(value, 0.0))
 
 
-def _paper_tables(summaries: list[dict[str, Any]], output: Path) -> list[Path]:
+def _paper_tables(summaries: list[dict[str, Any]], output: Path, *, task: str = "forgery") -> list[Path]:
     output.mkdir(parents=True, exist_ok=True)
     metric_columns = ["ASR", "l2", "linf", "LPIPS", "SSIM", "PSNR", "FID", "Time"]
     def table_row(row: dict[str, Any], variable: str, value: Any) -> dict[str, Any]:
@@ -209,29 +209,51 @@ def _paper_tables(summaries: list[dict[str, Any]], output: Path) -> list[Path]:
             "FID": row["FID"], "Time": row["attack_compute_time"],
         }
     outputs: list[Path] = []
+    def main_proposed(row: dict[str, Any]) -> bool:
+        return (
+            row["Method"] == "proposed" and int(row["N"]) == 5
+            and float(row["lambda"]) == 10000.0
+            and (task == "forgery" or float(row["beta"]) == 1.5)
+        )
     main = [
         row for row in summaries
         if (
             (row["Method"] == "jain" and float(row["lambda"]) == 10000.0)
             or (row["Method"] == "simple_averaging" and int(row["N"]) == 5)
-            or (row["Method"] == "proposed" and int(row["N"]) == 5 and float(row["lambda"]) == 10000.0)
+            or main_proposed(row)
         )
     ]
-    path = output / "forgery_method_table.csv"
+    path = output / f"{task}_method_table.csv"
     atomic_csv(path, [table_row(row, "Method", row["Method"]) for row in main], ["Watermark", "Model", "Method", *metric_columns])
     outputs.append(path)
     for method in ("jain", "proposed"):
-        selected = [row for row in summaries if row["Method"] == method and int(row["N"]) == (1 if method == "jain" else 5)]
-        path = output / f"forgery_lambda_{method}_table.csv"
+        selected = [
+            row for row in summaries
+            if row["Method"] == method
+            and int(row["N"]) == (1 if method == "jain" else 5)
+            and (task == "forgery" or method == "jain" or float(row["beta"]) == 1.5)
+        ]
+        path = output / f"{task}_lambda_{method}_table.csv"
         atomic_csv(path, [table_row(row, "lambda", row["lambda"]) for row in selected], ["Watermark", "Model", "lambda", *metric_columns])
         outputs.append(path)
     for method in ("proposed", "simple_averaging"):
         selected = [
             row for row in summaries
-            if row["Method"] == method and (method == "simple_averaging" or float(row["lambda"]) == 10000.0)
+            if row["Method"] == method
+            and (method == "simple_averaging" or float(row["lambda"]) == 10000.0)
+            and (task == "forgery" or method == "simple_averaging" or float(row["beta"]) == 1.5)
         ]
-        path = output / f"forgery_N_{method}_table.csv"
+        path = output / f"{task}_N_{method}_table.csv"
         atomic_csv(path, [table_row(row, "N", row["N"]) for row in selected], ["Watermark", "Model", "N", *metric_columns])
+        outputs.append(path)
+    if task == "removal":
+        selected = [
+            row for row in summaries
+            if row["Method"] == "proposed" and int(row["N"]) == 5
+            and float(row["lambda"]) == 10000.0
+        ]
+        path = output / "removal_beta_table.csv"
+        atomic_csv(path, [table_row(row, "beta", row["beta"]) for row in selected], ["Watermark", "Model", "beta", *metric_columns])
         outputs.append(path)
     return outputs
 
@@ -256,7 +278,11 @@ def _diagnostic_tables(
         if (
             (row["Method"] == "jain" and float(row["lambda"]) == 10000.0)
             or (row["Method"] == "simple_averaging" and int(row["N"]) == 5)
-            or (row["Method"] == "proposed" and int(row["N"]) == 5 and float(row["lambda"]) == 10000.0)
+            or (
+                row["Method"] == "proposed" and int(row["N"]) == 5
+                and float(row["lambda"]) == 10000.0
+                and (row["beta"] in ("", None) or float(row["beta"]) == 1.5)
+            )
         )
     ]
     costs = []
@@ -276,12 +302,13 @@ def _diagnostic_tables(
 
 
 def _condition_fids(
-    *, rows: list[dict[str, Any]], root: Path, target_by_key: dict[str, dict[str, str]],
+    *, rows: list[dict[str, Any]], root: Path,
+    source_by_group: dict[tuple[str, str, str], dict[str, str]],
     assets: dict[str, dict[str, Any]], key_ids: list[str],
 ) -> dict[str, float]:
     import torch
     model = _inception_model(assets["inception-v3-imagenet1k"]["path"])
-    source_features = _activations(model, [target_by_key[key_id]["path"] for key_id in key_ids])
+    source_feature_cache: dict[tuple[str, str], np.ndarray] = {}
     fid_unit_dir = root / "evaluation/fid_units"
     fid_unit_dir.mkdir(parents=True, exist_ok=True)
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -307,8 +334,15 @@ def _condition_fids(
                     stage="fid_and_reporting",
                 )
                 continue
+        first = group[0]
+        source_group = (first["model_setting"], first["watermark"])
+        if source_group not in source_feature_cache:
+            source_feature_cache[source_group] = _activations(model, [
+                source_by_group[(source_group[0], source_group[1], key_id)]["path"]
+                for key_id in key_ids
+            ])
         attacked = _activations(model, [root / by_key[key_id]["output_image_path"] for key_id in key_ids])
-        result[condition_id] = _fid(source_features, attacked)
+        result[condition_id] = _fid(source_feature_cache[source_group], attacked)
         atomic_write_json(record_path, {
             "condition_id": condition_id, "collection_hash": collection_hash,
             "sample_n": len(key_ids), "FID": result[condition_id],
@@ -323,9 +357,9 @@ def _condition_fids(
     return result
 
 
-def evaluate_formal_forgery(
+def _evaluate_formal(
     *, config: dict[str, Any], assets_lock: dict[str, Any], run_dir: str | Path,
-    run_id: str, key_ids: list[str], smoke: bool,
+    run_id: str, key_ids: list[str], smoke: bool, task: str,
 ) -> dict[str, Any]:
     """Run detector and quality evaluation in a process separate from attack execution."""
     root = Path(run_dir)
@@ -351,6 +385,19 @@ def evaluate_formal_forgery(
         raise RuntimeError("Attack must complete before independent evaluation")
     assets = assets_by_name(assets_lock)
     _, target_by_key, _ = formal_inputs(assets)
+    if task == "forgery":
+        source_by_group = {
+            (model_setting, watermark, key_id): row
+            for model_setting in config["model_settings"] for watermark in config["watermarks"]
+            for key_id, row in target_by_key.items()
+        }
+    else:
+        source_by_group = {
+            (row["model_setting"], row["watermark"], row["key_id"]): {
+                "path": str(root / row["target_path"]), "image_id": row["target_id"],
+            }
+            for row in read_csv(root / "evaluation/e0_original_detection.csv")
+        }
     attack_rows = read_csv(root / "manifests/attack_outputs.csv")
     lpips_model = _lpips_model(assets)
     import json
@@ -391,7 +438,7 @@ def evaluate_formal_forgery(
             })
             for offset in range(0, len(source_key_ids), inversion_batch_size):
                 batch_keys = source_key_ids[offset:offset + inversion_batch_size]
-                sources = [canonical_512(open_rgb(target_by_key[key_id]["path"])) for key_id in batch_keys]
+                sources = [canonical_512(open_rgb(source_by_group[(model_setting, watermark, key_id)]["path"])) for key_id in batch_keys]
                 inverted = adapter.invert_many(sources)
                 for index, key_id in enumerate(batch_keys):
                     initial_cache[key_id] = adapter.detect_inverted(inverted[index:index + 1], keys[key_id])
@@ -412,13 +459,13 @@ def evaluate_formal_forgery(
             for row in selected:
                 evaluation_unit_started = time.perf_counter()
                 key_id = row["key_id"]
-                source = canonical_512(open_rgb(target_by_key[key_id]["path"]))
+                source = canonical_512(open_rgb(source_by_group[(model_setting, watermark, key_id)]["path"]))
                 attacked = open_rgb(root / row["output_image_path"])
                 if (row["condition_id"], key_id) not in completed_final:
                     initial = initial_cache[key_id]
                     final = final_detection_cache[(row["condition_id"], key_id)]
                     eligible, succeeded, accepted_after = attack_success(
-                        "forgery", watermark, initial.score, final.score, cutoff,
+                        task, watermark, initial.score, final.score, cutoff,
                     )
                     quality = paired_quality_metrics(source, attacked, lpips_model)
                     diff = np.asarray(attacked, dtype=np.float32) / 255.0 - np.asarray(source, dtype=np.float32) / 255.0
@@ -455,13 +502,13 @@ def evaluate_formal_forgery(
     del lpips_model
     torch.cuda.empty_cache()
     fid_by_condition = _condition_fids(
-        rows=final_rows, root=root, target_by_key=target_by_key, assets=assets, key_ids=key_ids,
+        rows=final_rows, root=root, source_by_group=source_by_group, assets=assets, key_ids=key_ids,
     )
     summaries = _condition_summary(final_rows, fid_by_condition)
     atomic_csv(root / "evaluation/final_condition_summary.csv", summaries)
-    table_paths = _paper_tables(summaries, root / "evaluation/tables")
+    table_paths = _paper_tables(summaries, root / "evaluation/tables", task=task)
     diagnostic_paths = _diagnostic_tables(
-        final_rows, summaries, root / "evaluation", budget=int(config["T_forgery_formal"])
+        final_rows, summaries, root / "evaluation", budget=int(config[f"T_{task}_formal"])
     )
     status = "PASSED" if smoke else "COMPLETE"
     if not smoke:
@@ -475,7 +522,7 @@ def evaluate_formal_forgery(
         )
         failed_n = eligible_n - success_n
         atomic_write_text(root / f"{run_id}_实验总结.md", (
-            f"# 正式伪造实验总结\n\n"
+            f"# 正式{'伪造' if task == 'forgery' else '移除'}实验总结\n\n"
             f"- 实验状态：{status}\n- 协议版本：{PROTOCOL_VERSION}\n- run_id：`{run_id}`\n"
             f"- 分析日期：{datetime.datetime.now(datetime.timezone.utc).isoformat()}\n"
             f"- 结果来源：`evaluation/final_per_key_metrics.csv`、`evaluation/final_condition_summary.csv`\n"
@@ -488,7 +535,7 @@ def evaluate_formal_forgery(
             f"- 完整性检查：持久结果文件写入`checksums.sha256`后才清理临时spool\n"
             f"- 异常：无未处理异常\n\n"
             "## 结论边界\n\n"
-            f"本文件只确认{PROTOCOL_VERSION}伪造批次计算与完整性链完成。"
+            f"本文件只确认{PROTOCOL_VERSION}{'伪造' if task == 'forgery' else '移除'}批次计算与完整性链完成。"
             "各水印、模型和方法的正式数值及统计不确定性必须从上述CSV和固定表格读取；"
             "不得把历史P0、移除诊断或E7随机噪声控制计入主方法ASR排名。\n"
         ))
@@ -499,6 +546,9 @@ def evaluate_formal_forgery(
         root / "manifests/reference_candidate_manifest.csv",
         root / "manifests/reference_selection_control.csv",
         root / "manifests/reference_manifest.csv",
+        root / "manifests/sample_manifest.csv",
+        root / "manifests/clean_prior_manifest.csv",
+        root / "manifests/key_manifest.json",
         root / "logs/reference_image_cleanup_inventory.json",
         root / "logs/reference_image_cleanup.json",
         root / "evaluation/e0_original_detection.csv",
@@ -512,6 +562,8 @@ def evaluate_formal_forgery(
     ]
     if not smoke:
         persistent_paths.append(root / f"{run_id}_实验总结.md")
+    if task == "removal":
+        persistent_paths.append(root / "manifests/removal_target_manifest.csv")
     hashes = {
         path.relative_to(root).as_posix(): sha256_file(path)
         for path in persistent_paths
@@ -544,6 +596,14 @@ def evaluate_formal_forgery(
         durations=evaluation_durations, stage="complete",
     )
     return report
+
+
+def evaluate_formal_forgery(**kwargs: Any) -> dict[str, Any]:
+    return _evaluate_formal(task="forgery", **kwargs)
+
+
+def evaluate_formal_removal(**kwargs: Any) -> dict[str, Any]:
+    return _evaluate_formal(task="removal", **kwargs)
 
 
 ATTACK_COPY_FIELDS = [

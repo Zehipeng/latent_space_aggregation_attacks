@@ -30,6 +30,10 @@ E0_FIELDS = [
 ]
 
 
+def _removal_target_relative(model_setting: str, watermark: str, key_id: str) -> Path:
+    return Path("evaluation_spool/removal_targets") / model_setting / watermark / f"{key_id}.png"
+
+
 def _existing_controls(path: Path) -> list[dict[str, str]]:
     from .common import read_csv
     return read_csv(path) if path.is_file() else []
@@ -48,9 +52,9 @@ def _selected_group(
     return sorted(rows, key=lambda row: int(row["selected_reference_index"]))
 
 
-def prepare_formal_forgery(
+def _prepare_formal(
     *, config: dict[str, Any], assets_lock: dict[str, Any], run_dir: str | Path,
-    run_id: str, key_ids: list[str], project_root: str | Path,
+    run_id: str, key_ids: list[str], project_root: str | Path, task: str,
 ) -> dict[str, Any]:
     """Generate, validate and freeze formal references in a detector-enabled process."""
     import torch
@@ -61,7 +65,7 @@ def prepare_formal_forgery(
     root = ensure_run_layout(run_dir)
     identity = run_identity(
         config=config, assets_lock=assets_lock, project_root=project_root,
-        run_id=run_id, key_ids=key_ids, task="forgery",
+        run_id=run_id, key_ids=key_ids, task=task,
     )
     bind_run_identity(root / "manifests/run_manifest.json", identity)
     assets = assets_by_name(assets_lock)
@@ -70,6 +74,17 @@ def prepare_formal_forgery(
     if report_path.is_file():
         import json
         report = json.loads(report_path.read_text(encoding="utf-8"))
+        for final_name in ("evaluation_report.json", "smoke_report.json"):
+            final_path = root / final_name
+            if not final_path.is_file():
+                continue
+            final_report = json.loads(final_path.read_text(encoding="utf-8"))
+            hashes = final_report.get("hashes", {})
+            if (
+                final_report.get("spool_cleanup_status") == "COMPLETE" and hashes
+                and all((root / name).is_file() and sha256_file(root / name) == digest for name, digest in hashes.items())
+            ):
+                return report
         references = _existing_controls(root / "manifests/reference_manifest.csv")
         e0 = _existing_controls(root / "evaluation/e0_original_detection.csv")
         expected_references = (
@@ -83,7 +98,10 @@ def prepare_formal_forgery(
             and sha256_file(root / row["image_path"]) == row["image_sha256"]
             for row in references
         )
-        if references_valid and len(e0) == expected_e0 and report.get("status") == "PREPARATION_COMPLETE":
+        removal_targets_valid = task != "removal" or all(
+            (root / row["target_path"]).is_file() for row in e0
+        )
+        if references_valid and removal_targets_valid and len(e0) == expected_e0 and report.get("status") == "PREPARATION_COMPLETE":
             return report
     source_config = Path(config["_source_path"])
     protocol_source = Path(project_root) / f"docs/protocols/{PROTOCOL_VERSION}.md"
@@ -98,10 +116,11 @@ def prepare_formal_forgery(
         root / "manifests/reference_candidate_manifest.csv",
         [row for key_id in key_ids for row in prompt_by_key[key_id]],
     )
-    atomic_csv(
-        root / "manifests/sample_manifest.csv",
-        [target_by_key[key_id] for key_id in key_ids],
-    )
+    if task == "forgery":
+        atomic_csv(
+            root / "manifests/sample_manifest.csv",
+            [target_by_key[key_id] for key_id in key_ids],
+        )
     atomic_csv(
         root / "manifests/clean_prior_manifest.csv",
         [row for key_id in key_ids for row in clean_by_key[key_id]],
@@ -202,19 +221,34 @@ def prepare_formal_forgery(
                     and row["key_id"] == key_id
                     for row in e0_rows
                 ):
-                    target = target_by_key[key_id]
-                    detected = adapter.detect(canonical_512(open_rgb(target["path"])), key)
+                    if task == "removal":
+                        selected_rows = _selected_group(controls, model_setting, watermark, key_id)
+                        source_row = selected_rows[int(config["removal_target_reference_index"])]
+                        source_path = root / source_row["image_path"]
+                        target_relative = _removal_target_relative(model_setting, watermark, key_id)
+                        target_hash = atomic_png(root / target_relative, open_rgb(source_path))
+                        if target_hash != source_row["image_sha256"]:
+                            raise RuntimeError("Removal target copy changed canonical PNG bytes")
+                        target_id = source_row["image_sha256"]
+                        target_path = target_relative.as_posix()
+                        target_image = open_rgb(root / target_relative)
+                    else:
+                        target = target_by_key[key_id]
+                        target_id = target.get("image_id", key_id)
+                        target_path = target["path"]
+                        target_image = canonical_512(open_rgb(target_path))
+                    detected = adapter.detect(target_image, key)
                     e0_rows.append({
                         "protocol_version": PROTOCOL_VERSION,
                         "run_id": run_id,
                         "model_setting": model_setting,
                         "watermark": watermark,
                         "key_id": key_id,
-                        "target_id": target.get("image_id", key_id),
+                        "target_id": target_id,
                         "score": detected.score,
                         "score_name": detected.score_name,
                         "accepted": detected.accepted,
-                        "target_path": target["path"],
+                        "target_path": target_path,
                     })
                     atomic_csv(e0_path, e0_rows, E0_FIELDS)
         del adapters, pipe
@@ -235,6 +269,12 @@ def prepare_formal_forgery(
     expected_e0 = len(config["model_settings"]) * len(config["watermarks"]) * len(key_ids)
     if len(e0_rows) != expected_e0:
         raise RuntimeError(f"E0 has {len(e0_rows)} rows; expected {expected_e0}")
+    if task == "removal":
+        removal_targets = sorted(
+            e0_rows, key=lambda row: (row["model_setting"], row["watermark"], row["key_id"]),
+        )
+        atomic_csv(root / "manifests/removal_target_manifest.csv", removal_targets, E0_FIELDS)
+        atomic_csv(root / "manifests/sample_manifest.csv", removal_targets, E0_FIELDS)
     report = {
         "status": "PREPARATION_COMPLETE",
         "run_id": run_id,
@@ -244,3 +284,11 @@ def prepare_formal_forgery(
     }
     atomic_write_json(report_path, report)
     return report
+
+
+def prepare_formal_forgery(**kwargs: Any) -> dict[str, Any]:
+    return _prepare_formal(task="forgery", **kwargs)
+
+
+def prepare_formal_removal(**kwargs: Any) -> dict[str, Any]:
+    return _prepare_formal(task="removal", **kwargs)

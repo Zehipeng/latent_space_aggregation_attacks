@@ -14,6 +14,7 @@ from typing import Any
 from latent_space_aggregation_attacks import PROTOCOL_VERSION
 
 from ..core.atomic_io import atomic_write_json, atomic_write_text
+from ..core.conditions import conditions_for_task
 from .common import git_sha, read_csv, run_identity
 from ..core.gates import SmokeSignature, require_full_run_gate
 from ..core.hashing import stable_hash
@@ -25,11 +26,11 @@ def _tree_bytes(path: Path) -> int:
 
 def _run_worker(
     *, phase: str, config_path: str, assets_lock_path: str, run_dir: Path,
-    run_id: str, key_count: int, project_root: Path, smoke: bool,
+    run_id: str, key_count: int, project_root: Path, smoke: bool, task: str = "forgery",
 ) -> float:
     command = [
         sys.executable, "-m", "latent_space_aggregation_attacks.formal.worker",
-        "--phase", phase, "--config", config_path, "--assets-lock", assets_lock_path,
+        "--phase", phase, "--task", task, "--config", config_path, "--assets-lock", assets_lock_path,
         "--run-dir", str(run_dir), "--run-id", run_id, "--key-count", str(key_count),
         "--project-root", str(project_root), "--offline",
     ]
@@ -130,7 +131,7 @@ def _read_manifest_identity(path: Path) -> dict[str, Any]:
 
 
 def _eta_report(
-    smoke_dir: Path, timings: dict[str, float], output: Path, *, config: dict[str, Any],
+    smoke_dir: Path, timings: dict[str, float], output: Path, *, config: dict[str, Any], task: str = "forgery",
 ) -> dict[str, Any]:
     attack_rows = read_csv(smoke_dir / "manifests/attack_outputs.csv")
     iterative = [float(row["optimization_compute_time"]) for row in attack_rows if int(row["final_step"]) > 0]
@@ -159,8 +160,9 @@ def _eta_report(
     p50_seconds = fixed_scaled + p50_attack
     p90_seconds = fixed_scaled + p90_attack
     generated_at = datetime.now(timezone.utc)
-    full_primary_outputs = 13_200
-    full_e7_outputs = 13_200
+    conditions = conditions_for_task(task)
+    full_primary_outputs = len(conditions) * 200
+    full_e7_outputs = sum(condition.experiment != "E6" for condition in conditions) * 200
     report = {
         "status": "ESTIMATED_AWAITING_FULL_RUN_APPROVAL",
         "protocol_version": PROTOCOL_VERSION,
@@ -228,11 +230,11 @@ def _recorded_smoke_timings(output_root: Path, run_id: str) -> dict[str, float]:
     return result
 
 
-def run_formal_forgery(
+def _run_formal(
     *, config: dict[str, Any], assets_lock: dict[str, Any], config_path: str,
     smoke_config_path: str, assets_lock_path: str, run_id: str, project_root: str | Path,
     regression_report_path: str,
-    smoke_only: bool, approve_full_run: bool,
+    smoke_only: bool, approve_full_run: bool, task: str,
 ) -> dict[str, Any]:
     project = Path(project_root).resolve()
     validate_tree_ring_regression(
@@ -241,8 +243,8 @@ def run_formal_forgery(
     if config["validated_batching"]["require_equivalence_gate"]:
         raise RuntimeError("formal_protocol_v1.22 prohibits batched formal execution")
     output_root = Path(config["output_root"])
-    smoke_dir = output_root / "smoke/formal_forgery" / f"{run_id}_smoke"
-    full_dir = output_root / "formal_forgery" / run_id
+    smoke_dir = output_root / f"smoke/formal_{task}" / f"{run_id}_smoke"
+    full_dir = output_root / f"formal_{task}" / run_id
     smoke_timings: dict[str, float] = {}
     smoke_report_path = smoke_dir / "smoke_report.json"
     smoke_was_reviewable_at_start = (
@@ -253,20 +255,21 @@ def run_formal_forgery(
             smoke_timings[phase] = _run_worker(
                 phase=phase, config_path=smoke_config_path, assets_lock_path=assets_lock_path,
                 run_dir=smoke_dir, run_id=run_id, key_count=2, project_root=project, smoke=True,
+                task=task,
             )
         _eta_report(
-            smoke_dir, smoke_timings, smoke_dir / "runtime_estimate.json", config=config,
+            smoke_dir, smoke_timings, smoke_dir / "runtime_estimate.json", config=config, task=task,
         )
     elif not (smoke_dir / "runtime_estimate.json").is_file():
         _eta_report(
             smoke_dir, _recorded_smoke_timings(output_root, run_id),
-            smoke_dir / "runtime_estimate.json", config=config,
+            smoke_dir / "runtime_estimate.json", config=config, task=task,
         )
     smoke_report = json.loads(smoke_report_path.read_text(encoding="utf-8"))
     smoke_identity = _read_manifest_identity(smoke_dir / "manifests/run_manifest.json")
     full_identity = run_identity(
         config=config, assets_lock=assets_lock, project_root=project, run_id=run_id,
-        key_ids=[f"key_{index:03d}" for index in range(200)], task="forgery",
+        key_ids=[f"key_{index:03d}" for index in range(200)], task=task,
     )
     require_full_run_gate(
         _signature(full_identity), _signature(smoke_identity), smoke_report.get("status") == "PASSED",
@@ -284,6 +287,15 @@ def run_formal_forgery(
         _run_worker(
             phase=phase, config_path=config_path, assets_lock_path=assets_lock_path,
             run_dir=full_dir, run_id=run_id, key_count=200, project_root=project, smoke=False,
+            task=task,
         )
-    result.update(status="FORMAL_FORGERY_COMPLETE", run_dir=str(full_dir))
+    result.update(status=f"FORMAL_{task.upper()}_COMPLETE", run_dir=str(full_dir))
     return result
+
+
+def run_formal_forgery(**kwargs: Any) -> dict[str, Any]:
+    return _run_formal(task="forgery", **kwargs)
+
+
+def run_formal_removal(**kwargs: Any) -> dict[str, Any]:
+    return _run_formal(task="removal", **kwargs)

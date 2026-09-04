@@ -8,7 +8,7 @@ from scipy.linalg import sqrtm
 from latent_space_aggregation_attacks.formal.attack import _cleanup_consumed_reference_images, _matched_noise
 from latent_space_aggregation_attacks.core.hashing import sha256_file
 from latent_space_aggregation_attacks.evaluation.metrics import perturbation_metrics
-from latent_space_aggregation_attacks.formal.evaluate import FINAL_FIELDS, _cleanup_validated_spools, _condition_summary, _fid
+from latent_space_aggregation_attacks.formal.evaluate import FINAL_FIELDS, _cleanup_validated_spools, _condition_summary, _fid, _paper_tables
 from latent_space_aggregation_attacks.formal.orchestrator import _eta_report
 from latent_space_aggregation_attacks.models.asset_lock import validate_formal_assets
 
@@ -76,6 +76,32 @@ def test_e7_noise_records_post_clipping_norms():
     assert controlled.size == (32, 32)
     assert 0 < control_l2 <= parent_l2
     assert 0 < control_linf <= 1
+
+
+def test_removal_tables_keep_beta_out_of_main_lambda_and_n_views(tmp_path):
+    def row(method, n, lam, beta="", gamma=""):
+        return {
+            "Watermark": "tree_ring", "Model": "SDv2.0", "Method": method,
+            "N": n, "lambda": lam, "beta": beta, "gamma": gamma,
+            "ASR": 0.5, "l2": 1.0, "linf": 0.1, "lpips": 0.2,
+            "ssim": 0.9, "psnr": 30.0, "FID": 2.0, "attack_compute_time": 1.0,
+        }
+    summaries = [
+        row("jain", 1, lam) for lam in (10000.0, 20000.0, 50000.0)
+    ] + [
+        row("proposed", 5, lam, 1.5) for lam in (10000.0, 20000.0, 50000.0)
+    ] + [
+        row("proposed", n, 10000.0, 1.5) for n in (1, 25)
+    ] + [
+        row("simple_averaging", n, "", gamma=1.0) for n in (1, 5, 25)
+    ] + [
+        row("proposed", 5, 10000.0, beta) for beta in (1.0, 2.0)
+    ]
+    _paper_tables(summaries, tmp_path, task="removal")
+    assert len(list(csv.DictReader((tmp_path / "removal_method_table.csv").open()))) == 3
+    assert len(list(csv.DictReader((tmp_path / "removal_lambda_proposed_table.csv").open()))) == 3
+    assert len(list(csv.DictReader((tmp_path / "removal_N_proposed_table.csv").open()))) == 3
+    assert len(list(csv.DictReader((tmp_path / "removal_beta_table.csv").open()))) == 3
 
 
 def test_validated_spool_cleanup_is_scoped_and_idempotent(tmp_path):
@@ -160,3 +186,16 @@ def test_eta_report_retains_cleaned_spool_peak_and_runtime_metadata(tmp_path):
     assert report["hardware_software"]["inversion_batch_size"] == 1
     assert report["hardware_software"]["reference_encode_batch_size"] == 1
     assert report["p90_seconds"] >= report["p50_seconds"]
+    removal = _eta_report(
+        tmp_path, {"prepare": 1.0, "attack": 10.0, "evaluate": 2.0},
+        tmp_path / "removal_runtime_estimate.json",
+        config={"validated_batching": {
+            "attack_batch_size": 1,
+            "inversion_batch_size": 1,
+            "reference_encode_batch_size": 1,
+            "require_equivalence_gate": False,
+        }},
+        task="removal",
+    )
+    assert removal["formal_stage_counts"]["primary_attack_outputs"] == 21_600
+    assert removal["formal_stage_counts"]["e7_control_outputs"] == 15_600

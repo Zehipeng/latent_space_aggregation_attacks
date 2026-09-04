@@ -25,3 +25,16 @@ def test_forgery_registry_and_smoke_counts_are_config_aware():
         "p0_confirmation_units": 0,
     }
     assert expected_output_counts(key_count=2)["formal_unique_outputs"] == 348
+
+
+def test_removal_registry_covers_e2_through_e6_without_duplicate_main_settings():
+    conditions = conditions_for_task("removal")
+    assert len(conditions) == 108
+    assert sum(condition.method in {"jain", "proposed"} for condition in conditions) == 60
+    assert sum(condition.experiment != "E6" for condition in conditions) == 78
+    assert expected_output_counts(task="removal") == {
+        "formal_unique_outputs": 21600,
+        "iterative_outputs": 12000,
+        "p0_online_units": 0,
+        "p0_confirmation_units": 0,
+    }

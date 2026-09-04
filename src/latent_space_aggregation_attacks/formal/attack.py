@@ -8,14 +8,17 @@ from pathlib import Path
 from typing import Any
 
 from latent_space_aggregation_attacks import PROTOCOL_VERSION
-from latent_space_aggregation_attacks.methods.baselines.jain import jain_forgery_target
+from latent_space_aggregation_attacks.methods.baselines.jain import (
+    jain_forgery_target, jain_removal_mean_image,
+)
+from latent_space_aggregation_attacks.methods.baselines.distortions import apply_distortion
 from latent_space_aggregation_attacks.methods.baselines.simple_averaging import (
     apply_pixel_direction, estimate_pixel_direction,
 )
 from latent_space_aggregation_attacks.attack import (
     optimize_fixed_budget, optimize_fixed_budget_batch,
 )
-from latent_space_aggregation_attacks.latent_targets import forgery_target
+from latent_space_aggregation_attacks.latent_targets import forgery_target, removal_target
 from latent_space_aggregation_attacks.models.loaders import load_proxy_vae
 
 from ..core.atomic_io import atomic_write_bytes, atomic_write_json, atomic_write_text
@@ -141,7 +144,7 @@ def _cached_reference_latents(
     return torch.cat(values).to(device=next(vae.parameters()).device, dtype=next(vae.parameters()).dtype)
 
 
-def _simple_average(source: Any, references: list[Any], clean: list[Any]) -> Any:
+def _simple_average(source: Any, references: list[Any], clean: list[Any], task: str = "forgery") -> Any:
     import numpy as np
     import torch
     from PIL import Image
@@ -150,7 +153,7 @@ def _simple_average(source: Any, references: list[Any], clean: list[Any]) -> Any
     result = apply_pixel_direction(
         tensor(source),
         estimate_pixel_direction(torch.stack([tensor(x) for x in references]), torch.stack([tensor(x) for x in clean])),
-        "forgery", gamma=1.0,
+        task, gamma=1.0,
     )
     array = (result.permute(1, 2, 0).numpy() * 255.0).round().clip(0, 255).astype(np.uint8)
     return Image.fromarray(array, mode="RGB")
@@ -182,6 +185,24 @@ def _reference_rows(run_dir: Path) -> dict[tuple[str, str, str], list[dict[str, 
     for rows in grouped.values():
         rows.sort(key=lambda row: int(row["selected_reference_index"]))
     return grouped
+
+
+def _source_rows(root: Path, task: str, target_by_key: dict[str, dict[str, str]]) -> dict[tuple[str, str, str], dict[str, str]]:
+    if task == "forgery":
+        return {
+            (model_setting, watermark, key_id): row
+            for model_setting in ("same_model_sd14_target_sd14_vae_proxy", "cross_model_sd2_target_sd14_vae_proxy")
+            for watermark in ("tree_ring", "ringid", "gaussian_shading")
+            for key_id, row in target_by_key.items()
+        }
+    return {
+        (row["model_setting"], row["watermark"], row["key_id"]): {
+            "path": str(root / row["target_path"]),
+            "image_id": row["target_id"],
+            "sha256": sha256_file(root / row["target_path"]),
+        }
+        for row in read_csv(root / "evaluation/e0_original_detection.csv")
+    }
 
 
 def _cleanup_consumed_reference_images(root: Path, rows: list[dict[str, Any]], expected: int) -> dict[str, Any]:
@@ -247,13 +268,14 @@ def _run_iterative_condition_batches(
     target_by_key: dict[str, dict[str, str]], clean_by_key: dict[str, list[dict[str, str]]],
     references_by_group: dict[tuple[str, str, str], list[dict[str, str]]], vae: Any,
     config: dict[str, Any], config_hash: str, sha: str, run_id: str, ledger_path: Path,
-    unit_record_dir: Path, rows: list[dict[str, Any]], total: int,
+    unit_record_dir: Path, rows: list[dict[str, Any]], total: int, task: str,
+    source_by_group: dict[tuple[str, str, str], dict[str, str]],
 ) -> None:
     """Execute one iterative condition in independent, resume-compatible batches."""
     import torch
 
     device, dtype = next(vae.parameters()).device, next(vae.parameters()).dtype
-    budget = int(config["T_forgery_formal"])
+    budget = int(config[f"T_{task}_formal"])
     batch_size = int(config["validated_batching"]["attack_batch_size"])
     reference_batch_size = int(config["validated_batching"]["reference_encode_batch_size"])
     candidates: list[dict[str, Any]] = []
@@ -262,13 +284,13 @@ def _run_iterative_condition_batches(
         unit_id = condition.id + "|" + key_id
         if unit_id in completed:
             continue
-        target_row = target_by_key[key_id]
+        target_row = source_by_group[(condition.model_setting, condition.watermark, key_id)]
         source = canonical_512(open_rgb(target_row["path"]))
         reference_rows = references_by_group[(condition.model_setting, condition.watermark, key_id)]
         n = int(condition.N or 1)
         selected_rows = reference_rows[:n]
         references = [open_rgb(root / row["image_path"]) for row in selected_rows]
-        clean_rows = clean_by_key[key_id][:n]
+        clean_rows = [] if task == "removal" and condition.method == "jain" else clean_by_key[key_id][:n]
         seed = derive_seed("worker", "formal", unit_id)
         input_hash = stable_hash({
             "condition": condition.id, "key_id": key_id,
@@ -277,17 +299,35 @@ def _run_iterative_condition_batches(
             "clean_sha256": [row.get("sha256") for row in clean_rows],
         })
         source_tensor = _image_tensor(source, device=device, dtype=dtype)
-        reference_latents = _cached_reference_latents(
-            root=root, vae=vae, images=references, selected_rows=selected_rows,
-            model_setting=condition.model_setting, watermark=condition.watermark,
-            key_id=key_id, batch_size=reference_batch_size,
-        )
-        target_latent = (
-            jain_forgery_target(reference_latents)
-            if condition.method == "jain" else forgery_target(reference_latents)
-        )
+        reference_latents = None
+        if task == "forgery" or condition.method == "proposed":
+            reference_latents = _cached_reference_latents(
+                root=root, vae=vae, images=references, selected_rows=selected_rows,
+                model_setting=condition.model_setting, watermark=condition.watermark,
+                key_id=key_id, batch_size=reference_batch_size,
+            )
+        if task == "forgery":
+            assert reference_latents is not None
+            target_latent = (
+                jain_forgery_target(reference_latents)
+                if condition.method == "jain" else forgery_target(reference_latents)
+            )
+        elif condition.method == "jain":
+            with torch.inference_mode():
+                target_latent = (
+                    vae.encode(jain_removal_mean_image(source_tensor)).latent_dist.mode()
+                    * (1.0 / float(vae.config.scaling_factor))
+                ).detach().float()
+        else:
+            assert reference_latents is not None
+            clean_images = [canonical_512(open_rgb(row["path"])) for row in clean_rows]
+            clean_latents = _encode(vae, clean_images, batch_size=reference_batch_size)
+            source_latent = _encode(vae, [source], batch_size=1)
+            target_latent = removal_target(
+                source_latent, reference_latents, clean_latents, float(condition.beta),
+            )
         resume_path = root / "resume_state" / f"{stable_hash(unit_id)}.pkl"
-        start_step, current, history, prior_time = 0, source_tensor, [], 0.0
+        start_step, current, history, prior_time, saved_rng_state = 0, source_tensor, [], 0.0, None
         if resume_path.is_file():
             try:
                 state = load_resume_state(
@@ -296,12 +336,10 @@ def _run_iterative_condition_batches(
                 )
                 start_step, current, history = state.step, state.image_tensor, state.loss_history
                 prior_time = float(state.timing.get("optimization_compute_time", 0.0))
+                saved_rng_state = state.rng_state
                 append_event(ledger_path, LedgerEvent(unit_id, "RUNNING", f"resumed_from_step={start_step}"))
             except (FileNotFoundError, ValueError) as exc:
                 append_event(ledger_path, LedgerEvent(unit_id, "RUNNING", f"corrupt_resume_restart={exc}"))
-                seed_runtime(seed, torch)
-        else:
-            seed_runtime(seed, torch)
         candidates.append({
             "unit_id": unit_id, "key_id": key_id, "target_row": target_row,
             "source_tensor": source_tensor, "target_latent": target_latent,
@@ -309,6 +347,7 @@ def _run_iterative_condition_batches(
             "seed": seed, "input_hash": input_hash, "resume_path": resume_path,
             "start_step": start_step, "current": current, "history": history,
             "prior_time": prior_time,
+            "saved_rng_state": saved_rng_state,
             "preparation_time": time.perf_counter() - preparation_started,
             "started": 0.0,
         })
@@ -317,6 +356,12 @@ def _run_iterative_condition_batches(
         for offset in range(0, len(group), batch_size):
             batch = group[offset:offset + batch_size]
             with ExitStack() as stack:
+                if len(batch) != 1:
+                    raise RuntimeError("formal_protocol_v1.22 requires scalar attack batches")
+                if batch[0]["saved_rng_state"] is None:
+                    seed_runtime(batch[0]["seed"], torch)
+                else:
+                    restore_rng_state(batch[0]["saved_rng_state"], torch)
                 for item in batch:
                     item["started"] = time.perf_counter()
                     stack.enter_context(UnitLock(root / "logs/locks" / f"{stable_hash(item['unit_id'])}.lock"))
@@ -360,13 +405,13 @@ def _run_iterative_condition_batches(
                     row = {
                         "protocol_version": PROTOCOL_VERSION, "run_id": run_id,
                         "condition_id": condition.id, "experiment": condition.experiment,
-                        "task": "forgery", "watermark": condition.watermark,
+                        "task": task, "watermark": condition.watermark,
                         "model_setting": condition.model_setting, "method": condition.method,
                         "key_id": item["key_id"], "target_id": item["target_row"].get("image_id", item["key_id"]),
                         "reference_ids": ";".join(value["image_sha256"] for value in item["selected_rows"]),
                         "clean_ids": ";".join(value.get("image_id", "") for value in item["clean_rows"]),
                         "N": int(condition.N or 1), "lambda": condition.lambda_pixel,
-                        "beta": "", "gamma": "", "seed": item["seed"],
+                        "beta": condition.beta if condition.beta is not None else "", "gamma": "", "seed": item["seed"],
                         "final_step": result.final_step, "optimization_compute_time": compute_time,
                         "input_hash": item["input_hash"],
                         "unit_wall_time": item["preparation_time"] + time.perf_counter() - item["started"],
@@ -382,9 +427,9 @@ def _run_iterative_condition_batches(
             torch.cuda.empty_cache()
 
 
-def run_formal_forgery_attack(
+def _run_formal_attack(
     *, config: dict[str, Any], assets_lock: dict[str, Any], run_dir: str | Path,
-    run_id: str, key_ids: list[str], project_root: str | Path,
+    run_id: str, key_ids: list[str], project_root: str | Path, task: str,
 ) -> dict[str, Any]:
     """Detector-free formal attack process. This module deliberately has no detector dependency."""
     import torch
@@ -417,9 +462,11 @@ def run_formal_forgery_attack(
     assets = assets_by_name(assets_lock)
     _, target_by_key, clean_by_key = formal_inputs(assets)
     references_by_group = _reference_rows(root)
-    conditions = conditions_for_task("forgery")
+    source_by_group = _source_rows(root, task, target_by_key)
+    conditions = conditions_for_task(task)
     expected = len(conditions) * len(key_ids)
-    total_with_e7 = expected * 2
+    e7_parent_count = sum(condition.experiment != "E6" for condition in conditions) * len(key_ids)
+    total_with_e7 = expected + e7_parent_count
     results_path = root / "manifests/attack_outputs.csv"
     unit_record_dir = root / "manifests/attack_units"
     unit_record_dir.mkdir(parents=True, exist_ok=True)
@@ -445,7 +492,7 @@ def run_formal_forgery_attack(
                     resolved_config_hash=config_hash, protocol_version=PROTOCOL_VERSION,
                     git_sha=sha,
                 )
-                if state.step != int(config["T_forgery_formal"]):
+                if state.step != int(config[f"T_{task}_formal"]):
                     raise ValueError("completed unit resume state is not at the final step")
             except (FileNotFoundError, ValueError) as exc:
                 append_event(ledger_path, LedgerEvent(unit_id, "RUNNING", f"invalid_complete_restart={exc}"))
@@ -459,7 +506,7 @@ def run_formal_forgery_attack(
 
     vae = load_proxy_vae(model_config(assets, "same_model_sd14_target_sd14_vae_proxy"), offline=True)
     device, dtype = next(vae.parameters()).device, next(vae.parameters()).dtype
-    budget = int(config["T_forgery_formal"])
+    budget = int(config[f"T_{task}_formal"])
     for condition in conditions:
         if condition.method in {"jain", "proposed"}:
             _run_iterative_condition_batches(
@@ -468,7 +515,8 @@ def run_formal_forgery_attack(
                 references_by_group=references_by_group, vae=vae, config=config,
                 config_hash=config_hash, sha=sha, run_id=run_id, ledger_path=ledger_path,
                 unit_record_dir=unit_record_dir,
-                rows=rows, total=total_with_e7,
+                rows=rows, total=total_with_e7, task=task,
+                source_by_group=source_by_group,
             )
             atomic_csv(results_path, rows, ATTACK_FIELDS)
             continue
@@ -478,10 +526,10 @@ def run_formal_forgery_attack(
                 continue
             with UnitLock(root / "logs/locks" / f"{stable_hash(unit_id)}.lock"):
                 append_event(ledger_path, LedgerEvent(unit_id, "RUNNING"))
-                target_row = target_by_key[key_id]
+                target_row = source_by_group[(condition.model_setting, condition.watermark, key_id)]
                 source = canonical_512(open_rgb(target_row["path"]))
                 reference_rows = references_by_group[(condition.model_setting, condition.watermark, key_id)]
-                n = int(condition.N or 1)
+                n = 0 if condition.method == "distortion" else int(condition.N or 1)
                 selected_rows = reference_rows[:n]
                 references = [open_rgb(root / row["image_path"]) for row in selected_rows]
                 clean_rows = clean_by_key[key_id][:n]
@@ -498,7 +546,10 @@ def run_formal_forgery_attack(
                 started = time.perf_counter()
                 final_step = 0
                 if condition.method == "simple_averaging":
-                    final_pil = _simple_average(source, references, clean_images)
+                    final_pil = _simple_average(source, references, clean_images, task)
+                    compute_time = time.perf_counter() - started
+                elif condition.method == "distortion":
+                    final_pil = apply_distortion(source, str(condition.transform), seed=seed)
                     compute_time = time.perf_counter() - started
                 else:
                     source_tensor = _image_tensor(source, device=device, dtype=dtype)
@@ -556,13 +607,13 @@ def run_formal_forgery_attack(
                 row = {
                     "protocol_version": PROTOCOL_VERSION, "run_id": run_id,
                     "condition_id": condition.id, "experiment": condition.experiment,
-                    "task": "forgery", "watermark": condition.watermark,
+                    "task": task, "watermark": condition.watermark,
                     "model_setting": condition.model_setting, "method": condition.method,
                     "key_id": key_id, "target_id": target_row.get("image_id", key_id),
                     "reference_ids": ";".join(row["image_sha256"] for row in selected_rows),
                     "clean_ids": ";".join(row.get("image_id", "") for row in clean_rows),
-                    "N": n, "lambda": condition.lambda_pixel if condition.lambda_pixel is not None else "",
-                    "beta": "", "gamma": condition.gamma if condition.gamma is not None else "",
+                    "N": n if condition.N is not None else "", "lambda": condition.lambda_pixel if condition.lambda_pixel is not None else "",
+                    "beta": condition.beta if condition.beta is not None else "", "gamma": condition.gamma if condition.gamma is not None else "",
                     "seed": seed, "final_step": final_step,
                     "optimization_compute_time": compute_time, "input_hash": input_hash,
                     "unit_wall_time": time.perf_counter() - started,
@@ -585,8 +636,8 @@ def run_formal_forgery_attack(
         final_step = int(row["final_step"])
         if row["method"] in {"jain", "proposed"} and final_step != budget:
             raise RuntimeError(f"Iterative unit did not reach the frozen budget: {row['condition_id']}|{row['key_id']}")
-        if row["method"] == "simple_averaging" and final_step != 0:
-            raise RuntimeError("Simple Averaging must be recorded as a non-iterative method")
+        if row["method"] in {"simple_averaging", "distortion"} and final_step != 0:
+            raise RuntimeError("Non-iterative methods must be recorded at step zero")
     reference_cleanup = _cleanup_consumed_reference_images(root, rows, expected)
     control_record_dir = root / "manifests/e7_control_units"
     control_record_dir.mkdir(parents=True, exist_ok=True)
@@ -599,13 +650,14 @@ def run_formal_forgery_attack(
             valid_controls.append(row)
     control_rows = valid_controls
     completed_controls = {row["condition_id"] + "|" + row["key_id"] for row in control_rows}
-    for parent in rows:
+    e7_parents = [row for row in rows if row["experiment"] != "E6"]
+    for parent in e7_parents:
         control_condition = "e7_matched_noise_of__" + parent["condition_id"]
         control_unit = control_condition + "|" + parent["key_id"]
         if control_unit in completed_controls:
             continue
         started = time.perf_counter()
-        source = canonical_512(open_rgb(target_by_key[parent["key_id"]]["path"]))
+        source = canonical_512(open_rgb(source_by_group[(parent["model_setting"], parent["watermark"], parent["key_id"])]["path"]))
         attacked = open_rgb(root / parent["output_image_path"])
         seed = derive_seed("transform", "E7", parent["condition_id"], parent["key_id"])
         controlled, target_l2, control_l2, control_linf = _matched_noise(source, attacked, seed)
@@ -628,16 +680,24 @@ def run_formal_forgery_attack(
         append_event(ledger_path, LedgerEvent(control_unit, "COMPLETE", "E7 matched-noise control"))
         completed_controls.add(control_unit)
         _write_attack_progress(root, rows + control_rows, total_with_e7)
-    if len(control_rows) != expected or len(completed_controls) != expected:
-        raise RuntimeError(f"E7 produced {len(control_rows)} controls; expected {expected}")
+    if len(control_rows) != e7_parent_count or len(completed_controls) != e7_parent_count:
+        raise RuntimeError(f"E7 produced {len(control_rows)} controls; expected {e7_parent_count}")
     all_rows = rows + control_rows
     atomic_csv(results_path, all_rows, ATTACK_FIELDS)
     report = {
-        "status": "ATTACK_COMPLETE", "run_id": run_id, "unit_count": expected,
-        "e7_control_unit_count": expected, "total_output_count": len(all_rows),
+        "status": "ATTACK_COMPLETE", "run_id": run_id, "task": task, "unit_count": expected,
+        "e7_control_unit_count": e7_parent_count, "total_output_count": len(all_rows),
         "validated_batching": config["validated_batching"],
         "reference_latent_cache_file_count": len(list((root / "reference_latent_cache").glob("*.pt"))),
         "reference_image_cleanup": reference_cleanup,
     }
     atomic_write_json(attack_report_path, report)
     return report
+
+
+def run_formal_forgery_attack(**kwargs: Any) -> dict[str, Any]:
+    return _run_formal_attack(task="forgery", **kwargs)
+
+
+def run_formal_removal_attack(**kwargs: Any) -> dict[str, Any]:
+    return _run_formal_attack(task="removal", **kwargs)

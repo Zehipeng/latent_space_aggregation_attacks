@@ -15,6 +15,7 @@ def test_formal_targets():
 def test_simple_averaging():
     direction=estimate_pixel_direction(torch.tensor([.6,.8]).reshape(2,1,1,1),torch.tensor([.2,.4]).reshape(2,1,1,1)); assert direction.item()==pytest.approx(.4)
     assert apply_pixel_direction(torch.tensor([[[.8]]]),direction,"forgery").item()==1
+    assert apply_pixel_direction(torch.tensor([[[.8]]]),direction,"removal").item()==pytest.approx(.4)
     image=torch.tensor([0.,1.]).reshape(1,1,1,2); assert torch.equal(jain_removal_mean_image(image),torch.full_like(image,.5))
 
 

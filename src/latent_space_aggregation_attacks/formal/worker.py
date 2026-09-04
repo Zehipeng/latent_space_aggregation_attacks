@@ -11,7 +11,8 @@ from ..core.preflight import preflight
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Physically isolated formal forgery stage worker")
+    parser = argparse.ArgumentParser(description="Physically isolated formal stage worker")
+    parser.add_argument("--task", choices=("forgery", "removal"), required=True)
     parser.add_argument("--phase", choices=("prepare", "attack", "evaluate"), required=True)
     parser.add_argument("--config", required=True)
     parser.add_argument("--assets-lock", required=True)
@@ -34,15 +35,18 @@ def main() -> None:
         "run_dir": Path(args.run_dir), "run_id": args.run_id, "key_ids": key_ids,
     }
     if args.phase == "prepare":
-        from .prepare import prepare_formal_forgery
-        result = prepare_formal_forgery(**common, project_root=args.project_root)
+        from .prepare import prepare_formal_forgery, prepare_formal_removal
+        prepare = prepare_formal_forgery if args.task == "forgery" else prepare_formal_removal
+        result = prepare(**common, project_root=args.project_root)
     elif args.phase == "attack":
         # Importing only this branch is the process-level detector isolation boundary.
-        from .attack import run_formal_forgery_attack
-        result = run_formal_forgery_attack(**common, project_root=args.project_root)
+        from .attack import run_formal_forgery_attack, run_formal_removal_attack
+        attack = run_formal_forgery_attack if args.task == "forgery" else run_formal_removal_attack
+        result = attack(**common, project_root=args.project_root)
     else:
-        from .evaluate import evaluate_formal_forgery
-        result = evaluate_formal_forgery(**common, smoke=args.smoke)
+        from .evaluate import evaluate_formal_forgery, evaluate_formal_removal
+        evaluate = evaluate_formal_forgery if args.task == "forgery" else evaluate_formal_removal
+        result = evaluate(**common, smoke=args.smoke)
     elapsed = time.perf_counter() - started
     runtime = {
         "phase": args.phase, "elapsed_seconds": elapsed,
@@ -50,7 +54,7 @@ def main() -> None:
         "gpu_peak_reserved_bytes": int(torch.cuda.max_memory_reserved()),
         "gpu_name": torch.cuda.get_device_name(0), "torch_version": torch.__version__,
         "torch_cuda_version": torch.version.cuda, "python_version": platform.python_version(),
-        "key_count": args.key_count, "smoke": args.smoke,
+        "task": args.task, "key_count": args.key_count, "smoke": args.smoke,
     }
     atomic_write_json(Path(args.run_dir) / f"logs/{args.phase}_runtime.json", runtime)
     result["worker_runtime"] = runtime
