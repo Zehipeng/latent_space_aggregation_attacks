@@ -162,7 +162,11 @@ def test_eta_report_retains_cleaned_spool_peak_and_runtime_metadata(tmp_path):
         "gpu_peak_allocated_bytes": 10, "gpu_peak_reserved_bytes": 20,
     }
     for phase in ("prepare", "attack", "evaluate"):
-        (logs / f"{phase}_runtime.json").write_text(json.dumps({**runtime, "phase": phase}), encoding="utf-8")
+        maximum = 5.0 if phase == "prepare" else 0.0
+        (logs / f"{phase}_runtime.json").write_text(
+            json.dumps({**runtime, "phase": phase, "max_elapsed_seconds": maximum}),
+            encoding="utf-8",
+        )
     (logs / "spool_cleanup.json").write_text(
         json.dumps({"removed_bytes": 123}), encoding="utf-8",
     )
@@ -185,6 +189,7 @@ def test_eta_report_retains_cleaned_spool_peak_and_runtime_metadata(tmp_path):
     assert report["hardware_software"]["attack_batch_size"] == 1
     assert report["hardware_software"]["inversion_batch_size"] == 1
     assert report["hardware_software"]["reference_encode_batch_size"] == 1
+    assert report["representative_phase_seconds"]["prepare"] == 5.0
     assert report["p90_seconds"] >= report["p50_seconds"]
     removal = _eta_report(
         tmp_path, {"prepare": 1.0, "attack": 10.0, "evaluate": 2.0},

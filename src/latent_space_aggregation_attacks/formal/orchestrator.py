@@ -137,12 +137,7 @@ def _eta_report(
     iterative = [float(row["optimization_compute_time"]) for row in attack_rows if int(row["final_step"]) > 0]
     scale = 100.0
     p50_unit = statistics.median(iterative) if iterative else 0.0
-    # Scaling the complete attack wall time retains proxy encoding, checkpoint
-    # I/O, E7 construction and model-load overhead omitted from optimizer-only rows.
-    p50_attack = timings["attack"] * scale
     p90_unit = sorted(iterative)[max(0, math.ceil(0.9 * len(iterative)) - 1)] if iterative else 0.0
-    p90_attack = p50_attack + max(0.0, p90_unit - p50_unit) * len(iterative) * scale
-    fixed_scaled = (timings["prepare"] + timings["evaluate"]) * scale
     cleanup_report = smoke_dir / "logs/spool_cleanup.json"
     if cleanup_report.is_file():
         spool_bytes = int(json.loads(cleanup_report.read_text(encoding="utf-8"))["removed_bytes"])
@@ -157,6 +152,22 @@ def _eta_report(
         phase: json.loads((smoke_dir / f"logs/{phase}_runtime.json").read_text(encoding="utf-8"))
         for phase in ("prepare", "attack", "evaluate")
     }
+    representative_phase_seconds = {
+        phase: max(
+            float(timings[phase]),
+            float(phase_runtime[phase].get("elapsed_seconds", 0.0)),
+            float(phase_runtime[phase].get("max_elapsed_seconds", 0.0)),
+        )
+        for phase in ("prepare", "attack", "evaluate")
+    }
+    fixed_scaled = (
+        representative_phase_seconds["prepare"]
+        + representative_phase_seconds["evaluate"]
+    ) * scale
+    # Scaling the complete attack wall time retains proxy encoding, checkpoint
+    # I/O, E7 construction and model-load overhead omitted from optimizer-only rows.
+    p50_attack = representative_phase_seconds["attack"] * scale
+    p90_attack = p50_attack + max(0.0, p90_unit - p50_unit) * len(iterative) * scale
     p50_seconds = fixed_scaled + p50_attack
     p90_seconds = fixed_scaled + p90_attack
     generated_at = datetime.now(timezone.utc)
@@ -181,6 +192,7 @@ def _eta_report(
             ),
         },
         "stage_measurements": phase_runtime,
+        "representative_phase_seconds": representative_phase_seconds,
         "formal_stage_counts": {
             "reference_key_model_watermark_groups": 1_200,
             "primary_attack_outputs": full_primary_outputs,

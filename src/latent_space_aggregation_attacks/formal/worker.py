@@ -48,15 +48,29 @@ def main() -> None:
         evaluate = evaluate_formal_forgery if args.task == "forgery" else evaluate_formal_removal
         result = evaluate(**common, smoke=args.smoke)
     elapsed = time.perf_counter() - started
+    runtime_path = Path(args.run_dir) / f"logs/{args.phase}_runtime.json"
+    prior_max_elapsed = 0.0
+    if runtime_path.is_file():
+        prior_runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+        if (
+            prior_runtime.get("phase") == args.phase
+            and prior_runtime.get("task") == args.task
+            and int(prior_runtime.get("key_count", -1)) == args.key_count
+        ):
+            prior_max_elapsed = max(
+                float(prior_runtime.get("elapsed_seconds", 0.0)),
+                float(prior_runtime.get("max_elapsed_seconds", 0.0)),
+            )
     runtime = {
         "phase": args.phase, "elapsed_seconds": elapsed,
+        "max_elapsed_seconds": max(elapsed, prior_max_elapsed),
         "gpu_peak_allocated_bytes": int(torch.cuda.max_memory_allocated()),
         "gpu_peak_reserved_bytes": int(torch.cuda.max_memory_reserved()),
         "gpu_name": torch.cuda.get_device_name(0), "torch_version": torch.__version__,
         "torch_cuda_version": torch.version.cuda, "python_version": platform.python_version(),
         "task": args.task, "key_count": args.key_count, "smoke": args.smoke,
     }
-    atomic_write_json(Path(args.run_dir) / f"logs/{args.phase}_runtime.json", runtime)
+    atomic_write_json(runtime_path, runtime)
     result["worker_runtime"] = runtime
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
