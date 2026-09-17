@@ -1,5 +1,9 @@
 # Latent Space Aggregation Attacks
 
+独立的 **RingID / FR-LA 两样本视觉消融**使用
+`scripts/run_visual_ablation.py`，说明见 [VISUAL_ABLATION.md](docs/VISUAL_ABLATION.md)。
+它保留诊断 PNG，用于论文插图，不调用正式/smoke 编排器，也不并入正式统计。
+
 本项目是 `formal_protocol_v1.22` 的正式代码项目。权威协议增量快照位于
 `docs/protocols/formal_protocol_v1.22.md`，其基线为v1.21；历史项目
 `jain_multiref_latent_experiment/` 只作为算法回归来源，不是正式运行入口。
