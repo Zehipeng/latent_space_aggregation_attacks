@@ -37,6 +37,8 @@ def optimize_fixed_budget(
     checkpoint_callback: Callable[[int, Any, list[dict[str, float | int]]], None] | None = None,
     curve_callback: Callable[[int, Any], None] | None = None,
     stop_callback: Callable[[int, Any], bool] | None = None,
+    checkpoint_every: int = 50,
+    curve_every: int = 100,
 ) -> OptimizationResult:
     """Detector-free, fixed-budget, mean-reduction pixel gradient descent."""
     import torch
@@ -45,6 +47,8 @@ def optimize_fixed_budget(
         raise ValueError("formal learning_rate must be 0.02")
     if final_step <= start_step or lambda_pixel < 0:
         raise ValueError("invalid optimization budget")
+    if checkpoint_every <= 0 or curve_every <= 0:
+        raise ValueError("callback intervals must be positive")
     if getattr(vae, "is_detector", False):
         raise TypeError("A detector cannot be passed as the proxy VAE")
     device = next(vae.parameters()).device
@@ -75,14 +79,14 @@ def optimize_fixed_budget(
         if step == 1 or step == final_step or step % 50 == 0:
             records.append({"step": step, "latent_loss": float(latent_loss), "pixel_loss": float(pixel_loss), "total_loss": float(total_loss)})
         should_stop = bool(stop_callback and stop_callback(step, current))
-        if step % 50 == 0 and checkpoint_callback:
+        if step % checkpoint_every == 0 and checkpoint_callback:
             checkpoint_callback(step, current, records)
-        if step % 100 == 0 and curve_callback:
+        if step % curve_every == 0 and curve_callback:
             curve_callback(step, current)
         if should_stop:
             stopped_early = True
             break
-    if not stopped_early and completed_step % 100 and curve_callback:
+    if not stopped_early and completed_step % curve_every and curve_callback:
         curve_callback(completed_step, current)
     return OptimizationResult(current, completed_step, records, time.perf_counter() - started, stopped_early)
 
