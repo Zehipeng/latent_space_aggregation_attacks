@@ -9,3 +9,6 @@ learning_rate: 0.02
 lambda: 10000.0
 N: 5
 beta: 1.5
+aggregation: arithmetic_mean
+sample_policy: all_40_keys
+intervals: false

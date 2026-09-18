@@ -17,14 +17,30 @@ def test_detector_free_imports():
     tree = ast.parse(source.read_text(encoding="utf-8"))
     assert all("watermark" not in (n.module or "") for n in ast.walk(tree) if isinstance(n, ast.ImportFrom))
 
-def test_summary_eligibility():
+def synthetic_rows():
     rows = [{"task":"forgery", "watermark":wm, "method":m, "key_id":f"key_{i:03d}",
         "step":s, "eligible":i == 0, "score":.2 if i == 0 else .9}
         for wm in EXPECTED["watermarks"] for m in EXPECTED["methods"]
         for i in range(40) for s in range(0,151,10)]
-    result = summarize(rows)
+    return rows
+
+def test_summary_all_40_arithmetic_mean():
+    result = summarize(synthetic_rows())
     assert len(result) == 64
-    assert all(r["eligible_n"] == 1 and r["center"] == pytest.approx(.2) for r in result)
+    assert all(r["sample_n"] == 40 and r["center"] == pytest.approx((.2 + 39*.9)/40) for r in result)
+    assert all(r["aggregation"] == "arithmetic_mean" and "lower" not in r and "upper" not in r for r in result)
+
+@pytest.mark.parametrize("problem", ["missing", "duplicate", "nan", "out_of_range"])
+def test_summary_rejects_incomplete_or_invalid_data(problem):
+    rows = synthetic_rows()
+    if problem == "missing":
+        rows.pop()
+    elif problem == "duplicate":
+        rows[-1] = rows[0].copy()
+    else:
+        rows[0]["score"] = float("nan") if problem == "nan" else 1.1
+    with pytest.raises(ValueError):
+        summarize(rows)
 
 def test_every_ten_updates_without_detector():
     torch = pytest.importorskip("torch")

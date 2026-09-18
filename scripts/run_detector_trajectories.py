@@ -22,7 +22,7 @@ def main():
     p.add_argument("--settings", default=str(PROJECT / "configs/diagnostics/single_img_vs_fr_la_trajectory_v1.yaml"))
     p.add_argument("--config", default=str(PROJECT / "configs/current/formal_v1p22.yaml"))
     p.add_argument("--assets-lock", default=str(PROJECT / "local_assets/assets.lock.json"))
-    p.add_argument("--run-id", default="single_img_fr_la_40key_trajectory_v1_20260918")
+    p.add_argument("--run-id", default="single_img_fr_la_40key_trajectory_v1_mean40_20260918")
     p.add_argument("--phase", choices=["run", "preflight", "prepare", "attack", "evaluate", "finalize"], default="run")
     p.add_argument("--task", choices=["forgery", "removal"])
     p.add_argument("--dry-run", action="store_true")

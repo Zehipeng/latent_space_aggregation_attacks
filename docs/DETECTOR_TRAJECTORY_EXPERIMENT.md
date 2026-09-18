@@ -21,11 +21,15 @@ Evaluation starts in a separate process only after all checkpoints of the task a
 
 Results: `outputs/detector_trajectory/<run_id>/evaluation/{forgery,removal}/` contains
 `per_key_trajectory.csv`, `trajectory_summary.csv`, `report.json`. Finalize verifies both tasks.
-Forgery eligibility: original rejected; removal eligibility: original accepted. Eligibility is fixed at step 0.
-All per-key rows remain available, including ineligible keys. Summary excludes ineligible keys and reports denominators.
-RingID summary is median/IQR of raw target-key p-values (not hypothesis-test significance);
-Gaussian Shading is mean bit accuracy with deterministic 2000-resample descriptive 95% bootstrap interval.
-Do not call bit accuracy bitrate. Each task figure has two panels, one per metric, and two method lines per panel.
+Initial detection eligibility is retained only as per-key metadata, never as a summary filter.
+Both metrics use the arithmetic mean over all fixed 40 keys at each step. Missing, duplicate,
+non-finite or out-of-range scores stop summary generation; no failed key is silently dropped.
+No median, quartiles, bootstrap or interval bands. `center` is the mean; `sample_n=total_n=40`.
+Mean p-value is a descriptive detector score, not a combined hypothesis-test p-value.
+All per-key data remain available. This aggregation is user-approved, not attributed to Müller code.
+Do not call bit accuracy bitrate. Produce four independent figures: forgery RingID p-value,
+forgery Gaussian Shading bit accuracy, removal RingID p-value, removal Gaussian Shading bit accuracy.
+Each figure has two method lines, 16 checkpoints and no interval bands.
 Detector thresholds: RingID p<=0.05; Gaussian Shading bit accuracy>=0.6484375.
 
 Use `python scripts/run_detector_trajectories.py --dry-run` to inspect the contract without assets.
