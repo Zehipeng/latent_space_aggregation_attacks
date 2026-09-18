@@ -55,6 +55,7 @@ def _selected_group(
 def _prepare_formal(
     *, config: dict[str, Any], assets_lock: dict[str, Any], run_dir: str | Path,
     run_id: str, key_ids: list[str], project_root: str | Path, task: str,
+    input_overrides: tuple | None = None,
 ) -> dict[str, Any]:
     """Generate, validate and freeze formal references in a detector-enabled process."""
     import torch
@@ -69,7 +70,9 @@ def _prepare_formal(
     )
     bind_run_identity(root / "manifests/run_manifest.json", identity)
     assets = assets_by_name(assets_lock)
-    prompt_by_key, target_by_key, clean_by_key = formal_inputs(assets)
+    prompt_by_key, target_by_key, clean_by_key = (
+        formal_inputs(assets) if input_overrides is None else input_overrides
+    )
     report_path = root / "preparation_report.json"
     if report_path.is_file():
         import json

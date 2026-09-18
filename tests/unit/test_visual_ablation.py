@@ -15,6 +15,36 @@ from latent_space_aggregation_attacks.visual.report import finalize
 PROJECT = Path(__file__).resolve().parents[2]
 
 
+def test_cover_selection_is_deterministic_and_excludes_other_locked_subjects(tmp_path):
+    from latent_space_aggregation_attacks.visual.content import select_covers
+    annotation = {"categories": [{"name": "elephant", "id": 1}, {"name": "boat", "id": 2}],
+                  "images": [{"id": i, "file_name": f"{i}.jpg"} for i in (3, 2, 1)],
+                  "annotations": [{"image_id": 1, "category_id": 1},
+                                  {"image_id": 1, "category_id": 2},
+                                  {"image_id": 2, "category_id": 1},
+                                  {"image_id": 3, "category_id": 2}]}
+    for i in (2, 3): (tmp_path / f"{i}.jpg").touch()
+    selected = select_covers(annotation, tmp_path, {"a": "elephant", "b": "boat"})
+    assert selected["a"]["image_id"] == "2"
+    assert selected["b"]["image_id"] == "3"
+
+
+def test_original_gate_rejects_duplicate_and_near_duplicate_pixels(tmp_path):
+    from latent_space_aggregation_attacks.visual.content import verify_originals
+    rows = []
+    for i in range(10):
+        relative = f"images/originals/{i}.png"
+        atomic_png(tmp_path / relative, Image.new("RGB", (2, 2), (i * 20, 0, 0)))
+        rows.append({"original_path": relative})
+    verify_originals(tmp_path, rows)
+    atomic_png(tmp_path / rows[1]["original_path"], Image.new("RGB", (2, 2), (1, 0, 0)))
+    with pytest.raises(RuntimeError, match="Near-duplicate"):
+        verify_originals(tmp_path, rows)
+    atomic_png(tmp_path / rows[1]["original_path"], Image.new("RGB", (2, 2), (0, 0, 0)))
+    with pytest.raises(RuntimeError, match="Duplicate"):
+        verify_originals(tmp_path, rows)
+
+
 def test_approved_matrix_uses_disjoint_group_keys():
     conditions, views = plan(EXPECTED)
     assert len(conditions) == 15
@@ -61,12 +91,13 @@ def test_settings_reject_unapproved_changes(tmp_path):
 def test_finalize_requires_all_units_and_valid_image_hashes(tmp_path):
     with pytest.raises(RuntimeError): finalize(tmp_path, EXPECTED)
     conditions, _ = plan(EXPECTED)
-    image = Image.new("RGB", (2, 2), (1, 2, 3))
     for condition in conditions:
         for key in condition["key_ids"]:
             row = {**condition, "key_id": key, "final_step": 150}
+            image = Image.new("RGB", (2, 2), (20 * int(key[-3:]), 2, 3))
             for name in ("original", "final"):
-                path = Path("images") / condition["condition_id"] / key / f"{name}.png"
+                path = (Path("images/originals") / f"{key}.png" if name == "original" else
+                        Path("images") / condition["condition_id"] / key / f"{name}.png")
                 row[f"{name}_sha256"] = atomic_png(tmp_path / path, image)
                 row[f"{name}_path"] = path.as_posix()
             atomic_write_json(tmp_path / "units" / condition["condition_id"] / f"{key}.json", row)
@@ -74,6 +105,8 @@ def test_finalize_requires_all_units_and_valid_image_hashes(tmp_path):
     report = json.loads((tmp_path / "visual_report.json").read_text())
     assert report["unique_attack_units"] == 30
     assert report["panel_rows"] == 30
+    assert report["original_images"] == 10
+    assert len(list((tmp_path / "images").rglob("*.png"))) == 40
     assert not list(tmp_path.rglob("difference.png"))
     assert "difference_path" not in (tmp_path / "panel_manifest.csv").read_text()
     record = tmp_path / "units" / conditions[0]["condition_id"] / "key_002.json"
@@ -103,10 +136,14 @@ def test_preparation_filters_only_ringid_cross_model_without_mutating_protocol(m
                 "resolved_config_hash": "source"}
     calls = []
     monkeypatch.setattr(module, "prepare_formal_removal", lambda **kwargs: calls.append(kwargs) or {})
+    inputs = ({}, {}, {})
+    monkeypatch.setattr(module, "build_inputs", lambda *args: inputs)
+    monkeypatch.setattr(module, "freeze_originals", lambda *args: None)
     module.prepare(original, {}, tmp_path, "visual_test", PROJECT, EXPECTED)
     assert calls[0]["config"]["watermarks"] == ["ringid"]
     assert calls[0]["config"]["model_settings"] == [EXPECTED["model_setting"]]
     assert calls[0]["key_ids"] == EXPECTED["key_ids"]
     assert calls[0]["run_dir"] == tmp_path / "shared_preparation"
+    assert calls[0]["input_overrides"] == inputs
     assert original["resolved_config_hash"] == "source"
     assert len(original["watermarks"]) == 3

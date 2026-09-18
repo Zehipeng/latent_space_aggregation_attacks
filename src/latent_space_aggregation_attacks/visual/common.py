@@ -12,7 +12,7 @@ from ..core.hashing import sha256_file
 
 MODEL = "cross_model_sd2_target_sd14_vae_proxy"
 EXPECTED = {
-    "experiment_version": "visual_ablation_v2", "method_label": "FR-LA",
+    "experiment_version": "visual_ablation_v3", "method_label": "FR-LA",
     "watermark": "ringid", "model_setting": MODEL,
     "key_ids": [f"key_{i:03d}" for i in range(2, 12)],
     "group_keys": {
@@ -26,13 +26,22 @@ EXPECTED = {
     "main_N": 5, "main_lambda": 10000.0, "main_beta": 1.5,
     "iterations": 150, "learning_rate": 0.02,
     "save_difference": False,
+    "forgery_subjects": {"key_002": "elephant", "key_003": "airplane", "key_004": "train", "key_005": "boat"},
+    "removal_prompts": {
+        "key_006": "A white lighthouse on a rocky coast, blue ocean, realistic photograph",
+        "key_007": "Snow covered mountain peaks beneath a clear blue sky, realistic landscape photograph",
+        "key_008": "A ceramic cup of coffee on a wooden table, realistic still life photograph",
+        "key_009": "A tropical beach with palm trees and turquoise water, realistic landscape photograph",
+        "key_010": "A wooden violin resting on dark velvet, realistic still life photograph",
+        "key_011": "A yellow sunflower in a green garden, realistic close up photograph",
+    },
 }
 
 
 def load_settings(path: str | Path) -> dict[str, Any]:
     settings = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if settings != EXPECTED:
-        raise ValueError("Visual settings differ from the user-approved visual_ablation_v2 contract")
+        raise ValueError("Visual settings differ from the user-approved visual_ablation_v3 contract")
     return settings
 
 

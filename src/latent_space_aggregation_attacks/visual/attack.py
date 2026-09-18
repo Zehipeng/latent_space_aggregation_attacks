@@ -14,6 +14,7 @@ from ..formal.common import assets_by_name, atomic_png, canonical_512, formal_in
 from ..latent_targets import forgery_target, removal_target
 from ..models.loaders import load_proxy_vae
 from .common import plan, verified_record
+from .content import verify_originals
 
 
 def attack(assets: dict[str, Any], root: Path, identity: dict[str, Any], settings: dict[str, Any]) -> None:
@@ -32,7 +33,15 @@ def attack(assets: dict[str, Any], root: Path, identity: dict[str, Any], setting
             if sha256_file(prep / row["image_path"]) != row["image_sha256"]:
                 raise RuntimeError("Reference SHA mismatch")
     assets_map = assets_by_name(assets)
-    _, covers, clean = formal_inputs(assets_map)
+    _, _, clean = formal_inputs(assets_map)
+    originals = read_csv(root / "original_manifest.csv")
+    verify_originals(root, originals)
+    if {row["key_id"] for row in originals} != set(settings["key_ids"]):
+        raise RuntimeError("Original manifest keys differ from approved settings")
+    originals_by_key = {row["key_id"]: row for row in originals}
+    for row in originals:
+        if sha256_file(root / row["original_path"]) != row["original_sha256"]:
+            raise RuntimeError("Original SHA mismatch")
     vae = load_proxy_vae(model_config(assets_map, settings["model_setting"]), offline=True)
     device, dtype = next(vae.parameters()).device, next(vae.parameters()).dtype
     conditions, _ = plan(settings)
@@ -44,7 +53,10 @@ def attack(assets: dict[str, Any], root: Path, identity: dict[str, Any], setting
         clean_images = [canonical_512(open_rgb(row["path"])) for row in clean[key]]
         reference_latents = _encode(vae, refs, batch_size=1)
         clean_latents = _encode(vae, clean_images, batch_size=1)
-        sources = {"forgery": canonical_512(open_rgb(covers[key]["path"])), "removal": refs[0]}
+        original = originals_by_key[key]
+        sources = {"forgery": open_rgb(root / original["original_path"]), "removal": refs[0]}
+        if original["group"].startswith("removal") and original["original_sha256"] != by_key[key][0]["image_sha256"]:
+            raise RuntimeError("Removal original is not the first selected reference")
         source_latent = _encode(vae, [sources["removal"]], batch_size=1)
         for condition in conditions:
             if key not in condition["key_ids"]:
@@ -98,7 +110,9 @@ def attack(assets: dict[str, Any], root: Path, identity: dict[str, Any], setting
             row = {**condition, "key_id": key, "method": "FR-LA", "watermark": "ringid",
                 "model_setting": settings["model_setting"], "final_step": 150, "seed": seed,
                 "input_hash": input_hash, "optimization_compute_seconds": elapsed}
-            for name, image in (("original", source), ("final", final)):
+            row["original_path"] = original["original_path"]
+            row["original_sha256"] = original["original_sha256"]
+            for name, image in (("final", final),):
                 relative = Path("images") / task / cid / key / f"{name}.png"
                 row[f"{name}_sha256"] = atomic_png(root / relative, image)
                 row[f"{name}_path"] = relative.as_posix()

@@ -1,99 +1,80 @@
-# RingID / FR-LA visual ablation v2
+# RingID / FR-LA visual ablation v3
 
-v2 supersedes the runner defaults without overwriting v1 outputs. Five groups
-use disjoint fixed pairs: forgery lambda=key_002/003, forgery N=key_004/005,
-removal lambda=key_006/007, removal N=key_008/009, removal beta=key_010/011.
-Within each group, its three settings share the same two keys and samples.
-There are 15 group-specific conditions, 30 attacks and 30 panel rows. No
-difference images are generated. Defaults are configs/visual/ringid_fr_la_v2.yaml
-and run-id ringid_fr_la_visual_v2_20260918. Preparation uses 10 keys and 250
-selected reference images; preflight requires 5 GiB free disk. Output identity
-and resume states bind visual_ablation_v2. The v1 description below is retained
-as historical documentation only; its 24-unit matrix and difference output do
-not apply to v2. Use the v2 run-id in the execution and packaging examples.
-
-This independent retained-image diagnostic is not a formal 200-key run, smoke
-gate, or statistical result. It does not change formal_protocol_v1.22 or any
-existing formal output. FR-LA is the user-approved display name of the proposed
-latent aggregation attack; it does not change the algorithm.
+This independent retained-image diagnostic is outside formal 200-key statistics.
+It preserves existing v1/v2 outputs and does not change formal_protocol_v1.22.
 
 ## Frozen design
 
-- RingID, SD2-base target, SD1.4 proxy VAE; locked revisions from assets.lock.json.
-- Preregistered key_000 and key_001, master seed 205 and existing seed derivation.
-- Shared first 25 accepted references from the existing 64-candidate manifests.
-- Forgery original: preregistered COCO cover. Removal original: first selected
-  watermarked reference, included in each nested N-reference aggregate.
-- FR-LA only, 150 updates, learning rate .02, scalar encoding and attacks.
-- Lambda: 10000/20000/50000 at N=5, removal beta=1.5.
-- N: 1/5/25 at lambda=10000, removal beta=1.5.
-- Removal beta: 1/1.5/2 at N=5, lambda=10000.
-- Five unique forgery and seven unique removal conditions, each with two keys:
-  24 physical attacks and 30 figure-view rows. Shared main outputs are reused.
-- RGB difference matches semantic-forgery-main/utils/imprint_utils.py:
-  ToTensor -> abs(final-original) -> ToPILImage; float32 [0,1] differences are
-  multiplied by 255 and truncated to uint8. No scaling, normalization, channel
-  averaging or heatmap. Dark differences may be visually expected.
+RingID with SD2-base target and SD1.4 proxy VAE, locked offline assets, master
+seed 205, 150 fixed updates, learning rate .02, scalar encoding and attacks.
+Five groups use disjoint sample pairs:
 
-## Execution
+| Group | Keys | Content |
+| --- | --- | --- |
+| Forgery lambda | key_002/003 | elephant / airplane COCO covers |
+| Forgery N | key_004/005 | train / boat COCO covers |
+| Removal lambda | key_006/007 | lighthouse / snowy mountains |
+| Removal N | key_008/009 | coffee cup / tropical beach |
+| Removal beta | key_010/011 | violin / sunflower |
 
-`scripts/run_visual_ablation.py --dry-run` validates and prints the approved
-matrix without loading assets or models. `--phase preflight` verifies locked
-assets and requires 2 GiB free space. Neither command starts an experiment.
+COCO covers are selected by the smallest image ID containing the assigned
+category and none of the other three assigned categories. The six removal
+prompts are frozen in configs/visual/ringid_fr_la_v3.yaml. Each key retains its
+original generation seeds and 64-candidate budget; the first 25 accepted
+references are selected. Removal targets remain the first selected reference
+and participate in the aggregate. Samples are never selected by attack success.
+Pixel hashes and 32x32 RGB thumbnail distances reject identical or near-identical
+originals before attack. This gate is not proof of semantic diversity; review the
+actual ten originals after preparation, before starting attacks. Failed content
+checks stop the run and require review, with no automatic prompt reselection.
 
-The default `--phase run` launches prepare, attack and finalize as separate
-processes. Preparation uses detector-enabled RingID reference generation;
-the attack process imports no watermark detector and loads only the proxy VAE.
-No formal/smoke orchestrator or 200-key worker is invoked.
+Lambda=10000/20000/50000 at N=5; N=1/5/25 at lambda=10000;
+removal beta=1/1.5/2 at N=5 and lambda=10000. Other removal groups use beta=1.5.
+All three settings in a group share the same original pair. There are 15
+conditions, 30 attacks and exactly 10 shared originals plus 30 final PNGs.
+No difference PNGs, online detection, final attack detection or quality metrics
+are generated. Visual examples cannot establish ASR or general effectiveness.
 
-Run from the repository root:
+## Execution and recovery
 
-```bash
-export HF_HOME=/root/autodl-tmp/cache/huggingface
-export HF_HUB_CACHE=$HF_HOME/hub
-export HUGGINGFACE_HUB_CACHE=$HF_HUB_CACHE
-python -u scripts/run_visual_ablation.py --run-id ringid_fr_la_visual_v1_20260917
-```
+Defaults: configs/visual/ringid_fr_la_v3.yaml,
+ringid_fr_la_visual_v3_20260918, configs/current/formal_v1p22.yaml,
+local_assets/assets.lock.json. `--dry-run` needs no assets/GPU. `--phase preflight`
+checks locked local assets and at least 5 GiB free space. Prepare and attack
+require CUDA. There is no network download fallback.
 
-The default asset lock is local_assets/assets.lock.json and source protocol
-config is configs/current/formal_v1p22.yaml. The latter is verified unchanged,
-then its preparation settings are filtered to the approved watermark/model.
-CPU preflight is possible in no-GPU mode; actual preparation and attacks require
-a CUDA GPU. The first preparation loads the locked target pipeline offline;
-the attack process loads the locked proxy VAE offline. Missing files stop the
-run; there is no download fallback.
-
-## Outputs and recovery
-
-All outputs are under outputs/visual_ablation/<run_id>/, never formal folders.
-The run identity binds full Git SHA, approved settings, source config hash and
-asset lock hash. Repeat the identical command to resume. Verified completed
-units are skipped; active units save RNG/image/identity state every 50 steps.
-Corrupt resume states stop with an error rather than being silently accepted.
-Each checkpoint and completed unit prints progress immediately.
-
-- shared_preparation/: references, seed/candidate manifests and E0 checks.
-- images/<task>/<condition>/<key>/: original.png, final.png, difference.png.
-- units/: unit parameters, seeds, timings and three output hashes.
-- resume_state/: local recovery state, not a Git asset.
-- image_manifest.csv: 24 physical attack units.
-- panel_manifest.csv: 30 rows across five ablation views for later figure assembly.
-- checksums.sha256 and visual_report.json: final integrity/retention report.
-- logs/*_runtime.json and executions/: commands, package/GPU versions,
-  timestamps, elapsed time and phase exit status; failures retain partial files.
-
-All diagnostic PNGs and metadata remain available for figure production.
-No final attack detection, FID or success claim is generated by this visual-only
-runner. Interpretation is limited to the two frozen examples. Paper composites,
-captions and Overleaf insertion will be produced after reviewing downloaded
-outputs and checking their hashes.
-
-Package only this run, not the repository/models/data:
+Run prepare first and review originals, then attack and finalize:
 
 ```bash
-cd /root/autodl-tmp/outputs/visual_ablation
-RUN=ringid_fr_la_visual_v1_20260917
-tar -czf "$RUN.tar.gz" "$RUN"
-sha256sum "$RUN.tar.gz" > "$RUN.tar.gz.sha256"
-tar -tzf "$RUN.tar.gz" > "$RUN.contents.txt"
+python scripts/run_visual_ablation.py --dry-run
+python -u scripts/run_visual_ablation.py --phase preflight
+python -u scripts/run_visual_ablation.py --phase prepare
+python -u scripts/run_visual_ablation.py --phase attack
+python -u scripts/run_visual_ablation.py --phase finalize
 ```
+
+`--phase run` launches all three phases in physically separate processes.
+Preparation loads RingID generation/detection; attack loads only proxy VAE and
+imports no watermark detector. No formal orchestrator is invoked. The filtered
+preparation identity binds the v3 content settings; formal default inputs are
+unchanged. Run identity binds full commit SHA, settings, config and asset lock.
+Repeat the same command to resume; completed hashed units are skipped, active
+units save RNG/image/identity state every 50 steps. Corrupt states stop the run.
+
+## Outputs
+
+Under the configured output_root/visual_ablation/<run_id>/:
+
+- shared_preparation/: 250 references, candidate/key manifests and E0 checks.
+- original_manifest.csv and images/originals/<key>.png: ten frozen originals.
+- images/<task>/<condition>/<key>/final.png: thirty final outputs.
+- units/: parameters, input identities, timings and original/final hashes.
+- resume_state/: recovery states; logs/ and executions/: runtime records.
+- image_manifest.csv: thirty attacks; panel_manifest.csv: thirty figure views.
+- checksums.sha256 and visual_report.json: final integrity and image counts.
+
+Reference PNGs are preparation assets in addition to the forty publication
+source images. All diagnostic assets are retained for review; no automatic
+cleanup occurs. Package only the named run, never repository/model/data caches.
+After download verify archive SHA and output hashes, compose the five figures,
+then integrate with the paper/Overleaf. Historical v1/v2 assets remain unchanged.
