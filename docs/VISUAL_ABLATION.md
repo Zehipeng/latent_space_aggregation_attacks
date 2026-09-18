@@ -1,4 +1,16 @@
-# RingID / FR-LA visual ablation v1
+# RingID / FR-LA visual ablation v2
+
+v2 supersedes the runner defaults without overwriting v1 outputs. Five groups
+use disjoint fixed pairs: forgery lambda=key_002/003, forgery N=key_004/005,
+removal lambda=key_006/007, removal N=key_008/009, removal beta=key_010/011.
+Within each group, its three settings share the same two keys and samples.
+There are 15 group-specific conditions, 30 attacks and 30 panel rows. No
+difference images are generated. Defaults are configs/visual/ringid_fr_la_v2.yaml
+and run-id ringid_fr_la_visual_v2_20260918. Preparation uses 10 keys and 250
+selected reference images; preflight requires 5 GiB free disk. Output identity
+and resume states bind visual_ablation_v2. The v1 description below is retained
+as historical documentation only; its 24-unit matrix and difference output do
+not apply to v2. Use the v2 run-id in the execution and packaging examples.
 
 This independent retained-image diagnostic is not a formal 200-key run, smoke
 gate, or statistical result. It does not change formal_protocol_v1.22 or any

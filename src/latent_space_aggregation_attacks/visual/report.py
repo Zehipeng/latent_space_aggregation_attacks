@@ -15,7 +15,7 @@ def finalize(root: Path, settings: dict[str, Any]) -> None:
     lookup = {}
     for condition in conditions:
         cid = condition["condition_id"]
-        for key in settings["key_ids"]:
+        for key in condition["key_ids"]:
             row = verified_record(root / "units" / cid / f"{key}.json", root)
             if not row or row["final_step"] != 150:
                 raise RuntimeError(f"Missing or corrupt visual unit: {cid}|{key}")
@@ -24,13 +24,13 @@ def finalize(root: Path, settings: dict[str, Any]) -> None:
     atomic_csv(root / "image_manifest.csv", rows)
     atomic_csv(root / "panel_manifest.csv", [{**view,
         **{f"{name}_path": lookup[view["condition_id"], view["key_id"]][f"{name}_path"]
-           for name in ("original", "final", "difference")}} for view in views])
+           for name in ("original", "final")}} for view in views])
     files = sorted(p for p in root.rglob("*") if p.is_file() and
                    (p.suffix == ".png" or p.name in {"image_manifest.csv", "panel_manifest.csv", "run_identity.json"}))
     hashes = {p.relative_to(root).as_posix(): sha256_file(p) for p in files}
     atomic_write_text(root / "checksums.sha256", "".join(f"{digest}  {name}\n" for name, digest in hashes.items()))
-    atomic_write_json(root / "visual_report.json", {"status": "VISUAL_COMPLETE", "experiment_version": "visual_ablation_v1",
+    atomic_write_json(root / "visual_report.json", {"status": "VISUAL_COMPLETE", "experiment_version": settings["experiment_version"],
         "formal_statistics": False, "unique_attack_units": len(rows), "panel_rows": len(views),
-        "retention": "All diagnostic original/final/difference PNGs retained", "hashes": hashes})
-    atomic_write_json(root / "progress.json", {"stage": "complete", "completed_units": len(rows), "total_units": 24})
+        "group_keys": settings["group_keys"], "retention": "Original/final PNGs retained; no difference PNGs", "hashes": hashes})
+    atomic_write_json(root / "progress.json", {"stage": "complete", "completed_units": len(rows), "total_units": len(views)})
     print(f"VISUAL_COMPLETE: {len(rows)} attacks, {len(views)} panel rows; {root}", flush=True)

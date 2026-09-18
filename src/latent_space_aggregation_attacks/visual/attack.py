@@ -13,7 +13,7 @@ from ..formal.attack import _encode, _image_tensor, _tensor_pil
 from ..formal.common import assets_by_name, atomic_png, canonical_512, formal_inputs, model_config, open_rgb, read_csv
 from ..latent_targets import forgery_target, removal_target
 from ..models.loaders import load_proxy_vae
-from .common import plan, semantic_difference, verified_record
+from .common import plan, verified_record
 
 
 def attack(assets: dict[str, Any], root: Path, identity: dict[str, Any], settings: dict[str, Any]) -> None:
@@ -36,7 +36,7 @@ def attack(assets: dict[str, Any], root: Path, identity: dict[str, Any], setting
     vae = load_proxy_vae(model_config(assets_map, settings["model_setting"]), offline=True)
     device, dtype = next(vae.parameters()).device, next(vae.parameters()).dtype
     conditions, _ = plan(settings)
-    total = len(conditions) * len(settings["key_ids"])
+    total = sum(len(condition["key_ids"]) for condition in conditions)
     completed = 0
     config_hash = stable_hash(identity)
     for key in settings["key_ids"]:
@@ -47,6 +47,8 @@ def attack(assets: dict[str, Any], root: Path, identity: dict[str, Any], setting
         sources = {"forgery": canonical_512(open_rgb(covers[key]["path"])), "removal": refs[0]}
         source_latent = _encode(vae, [sources["removal"]], batch_size=1)
         for condition in conditions:
+            if key not in condition["key_ids"]:
+                continue
             cid, task, n = condition["condition_id"], condition["task"], condition["N"]
             unit = f"{cid}|{key}"
             record_path = root / "units" / cid / f"{key}.json"
@@ -64,13 +66,13 @@ def attack(assets: dict[str, Any], root: Path, identity: dict[str, Any], setting
             target = (forgery_target(reference_latents[:n]) if task == "forgery" else
                 removal_target(source_latent, reference_latents[:n], clean_latents[:n], condition["beta"]))
             tensor = _image_tensor(source, device=device, dtype=dtype)
-            seed = derive_seed("worker", "visual_ablation_v1", task, key)
+            seed = derive_seed("worker", settings["experiment_version"], task, key)
             seed_runtime(seed, torch)
             state_path = root / "resume_state" / f"{stable_hash(unit)}.pkl"
             step, current, history, prior_time = 0, tensor, [], 0.0
             if state_path.is_file():
                 state = load_resume_state(state_path, expected_unit_id=unit, input_hash=input_hash,
-                    resolved_config_hash=config_hash, protocol_version="visual_ablation_v1", git_sha=identity["git_sha"])
+                    resolved_config_hash=config_hash, protocol_version=settings["experiment_version"], git_sha=identity["git_sha"])
                 step, current, history = state.step, state.image_tensor, state.loss_history
                 prior_time = state.timing["optimization_compute_time"]
                 restore_rng_state(state.rng_state, torch)
@@ -82,7 +84,7 @@ def attack(assets: dict[str, Any], root: Path, identity: dict[str, Any], setting
                     image_tensor=image.detach().cpu(), loss_history=losses, rng_state=capture_rng_state(torch),
                     timing={"optimization_compute_time": prior_time + time.perf_counter() - started},
                     input_hash=input_hash, resolved_config_hash=config_hash,
-                    protocol_version="visual_ablation_v1", git_sha=identity["git_sha"]))
+                    protocol_version=settings["experiment_version"], git_sha=identity["git_sha"]))
                 print(f"VISUAL_CHECKPOINT {unit} step={at}/150", flush=True)
             if step < 150:
                 result = optimize_fixed_budget(tensor, target, vae, lambda_pixel=condition["lambda"],
@@ -96,8 +98,7 @@ def attack(assets: dict[str, Any], root: Path, identity: dict[str, Any], setting
             row = {**condition, "key_id": key, "method": "FR-LA", "watermark": "ringid",
                 "model_setting": settings["model_setting"], "final_step": 150, "seed": seed,
                 "input_hash": input_hash, "optimization_compute_seconds": elapsed}
-            for name, image in (("original", source), ("final", final),
-                                ("difference", semantic_difference(final, source))):
+            for name, image in (("original", source), ("final", final)):
                 relative = Path("images") / task / cid / key / f"{name}.png"
                 row[f"{name}_sha256"] = atomic_png(root / relative, image)
                 row[f"{name}_path"] = relative.as_posix()
@@ -106,4 +107,4 @@ def attack(assets: dict[str, Any], root: Path, identity: dict[str, Any], setting
             atomic_write_json(root / "progress.json", {"stage": "attack", "completed_units": completed,
                 "total_units": total, "last_unit": unit})
             print(f"VISUAL_ATTACK_COMPLETE {completed}/{total} {unit} seconds={elapsed:.2f}", flush=True)
-    print("VISUAL_ALL_24_ATTACKS_COMPLETE", flush=True)
+    print(f"VISUAL_ALL_{total}_ATTACKS_COMPLETE", flush=True)

@@ -15,11 +15,11 @@ from latent_space_aggregation_attacks.visual.report import finalize
 PROJECT = Path(__file__).resolve().parents[2]
 
 
-def test_approved_matrix_deduplicates_main_condition():
+def test_approved_matrix_uses_disjoint_group_keys():
     conditions, views = plan(EXPECTED)
-    assert len(conditions) == 12
-    assert sum(c["task"] == "forgery" for c in conditions) == 5
-    assert sum(c["task"] == "removal" for c in conditions) == 7
+    assert len(conditions) == 15
+    assert sum(c["task"] == "forgery" for c in conditions) == 6
+    assert sum(c["task"] == "removal" for c in conditions) == 9
     assert len(views) == 30
     by_id = {c["condition_id"]: c for c in conditions}
     for view in views:
@@ -28,9 +28,13 @@ def test_approved_matrix_deduplicates_main_condition():
         if view["factor"] != "N": assert condition["N"] == 5
         if condition["task"] == "removal" and view["factor"] != "beta":
             assert condition["beta"] == 1.5
-    main = [v for v in views if v["key_id"] == "key_000" and
-            v["condition_id"] == "removal_N5_lambda10000_beta1.5"]
-    assert len(main) == 3
+    groups = list(EXPECTED["group_keys"].values())
+    assert len(set(key for keys in groups for key in keys)) == 10
+    for group, keys in EXPECTED["group_keys"].items():
+        selected = [v for v in views if v["group"] == group]
+        assert len(selected) == 6
+        assert set(v["key_id"] for v in selected) == set(keys)
+        assert all(sum(v["key_id"] == key for v in selected) == 3 for key in keys)
 
 
 def test_difference_matches_float_tensor_conversion_without_uint8_wrap():
@@ -59,18 +63,20 @@ def test_finalize_requires_all_units_and_valid_image_hashes(tmp_path):
     conditions, _ = plan(EXPECTED)
     image = Image.new("RGB", (2, 2), (1, 2, 3))
     for condition in conditions:
-        for key in EXPECTED["key_ids"]:
+        for key in condition["key_ids"]:
             row = {**condition, "key_id": key, "final_step": 150}
-            for name in ("original", "final", "difference"):
+            for name in ("original", "final"):
                 path = Path("images") / condition["condition_id"] / key / f"{name}.png"
                 row[f"{name}_sha256"] = atomic_png(tmp_path / path, image)
                 row[f"{name}_path"] = path.as_posix()
             atomic_write_json(tmp_path / "units" / condition["condition_id"] / f"{key}.json", row)
     finalize(tmp_path, EXPECTED)
     report = json.loads((tmp_path / "visual_report.json").read_text())
-    assert report["unique_attack_units"] == 24
+    assert report["unique_attack_units"] == 30
     assert report["panel_rows"] == 30
-    record = tmp_path / "units" / conditions[0]["condition_id"] / "key_000.json"
+    assert not list(tmp_path.rglob("difference.png"))
+    assert "difference_path" not in (tmp_path / "panel_manifest.csv").read_text()
+    record = tmp_path / "units" / conditions[0]["condition_id"] / "key_002.json"
     row = verified_record(record, tmp_path)
     (tmp_path / row["final_path"]).write_bytes(b"corrupt")
     assert verified_record(record, tmp_path) is None
@@ -81,7 +87,7 @@ def test_cli_dry_run_does_not_need_assets_or_gpu():
     result = subprocess.run([sys.executable, str(PROJECT / "scripts/run_visual_ablation.py"),
                              "--dry-run", "--assets-lock", "does-not-exist.json"],
                             capture_output=True, text=True, check=True)
-    assert json.loads(result.stdout)["attack_units"] == 24
+    assert json.loads(result.stdout)["attack_units"] == 30
 
 
 def test_attack_import_does_not_load_watermark_detectors():
@@ -100,7 +106,7 @@ def test_preparation_filters_only_ringid_cross_model_without_mutating_protocol(m
     module.prepare(original, {}, tmp_path, "visual_test", PROJECT, EXPECTED)
     assert calls[0]["config"]["watermarks"] == ["ringid"]
     assert calls[0]["config"]["model_settings"] == [EXPECTED["model_setting"]]
-    assert calls[0]["key_ids"] == ["key_000", "key_001"]
+    assert calls[0]["key_ids"] == EXPECTED["key_ids"]
     assert calls[0]["run_dir"] == tmp_path / "shared_preparation"
     assert original["resolved_config_hash"] == "source"
     assert len(original["watermarks"]) == 3

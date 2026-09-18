@@ -26,10 +26,10 @@ from latent_space_aggregation_attacks.visual.common import load_settings, plan
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--settings", default=str(PROJECT / "configs/visual/ringid_fr_la_v1.yaml"))
+    parser.add_argument("--settings", default=str(PROJECT / "configs/visual/ringid_fr_la_v2.yaml"))
     parser.add_argument("--config", default=str(PROJECT / "configs/current/formal_v1p22.yaml"))
     parser.add_argument("--assets-lock", default=str(PROJECT / "local_assets/assets.lock.json"))
-    parser.add_argument("--run-id", default="ringid_fr_la_visual_v1_20260917")
+    parser.add_argument("--run-id", default="ringid_fr_la_visual_v2_20260918")
     parser.add_argument("--phase", choices=["run", "preflight", "prepare", "attack", "finalize"], default="run")
     parser.add_argument("--dry-run", action="store_true", help="Print approved matrix without reading assets or loading models")
     args = parser.parse_args()
@@ -49,15 +49,15 @@ def main() -> None:
         raise RuntimeError("Tracked source changes present; run the exact pushed commit")
     config, assets = checked["config"], checked["assets"]
     root = Path(config["output_root"]) / "visual_ablation" / args.run_id
-    # 2 GiB is conservative for 50 references, inputs, 72 output PNGs and resume tensors.
+    # Separate groups need 250 references, 60 output PNGs and 30 resume states.
     free = shutil.disk_usage(Path(config["output_root"]).parent).free
-    if free < 2 * 1024**3: raise RuntimeError("Visual run requires at least 2 GiB free disk")
-    identity = {"experiment_version": "visual_ablation_v1", "formal_statistics": False,
+    if free < 5 * 1024**3: raise RuntimeError("Visual run requires at least 5 GiB free disk")
+    identity = {"experiment_version": settings["experiment_version"], "formal_statistics": False,
         "run_id": args.run_id, "git_sha": git_sha(PROJECT), "settings": settings,
         "source_config_hash": config["resolved_config_hash"], "assets_lock_hash": stable_hash(assets)}
     if args.phase == "preflight":
         print(json.dumps({"status": "VISUAL_PREFLIGHT_PASSED", "identity": identity,
-                          "attack_units": 24, "minimum_free_bytes": 2*1024**3, "free_bytes": free}, indent=2))
+                          "attack_units": len(views), "minimum_free_bytes": 5*1024**3, "free_bytes": free}, indent=2))
         return
     root.mkdir(parents=True, exist_ok=True)
     identity_path = root / "run_identity.json"

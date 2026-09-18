@@ -16,7 +16,7 @@ def prepare(config: dict[str, Any], assets: dict[str, Any], root: Path,
     selected["watermarks"] = [settings["watermark"]]
     selected["resolved_config_hash"] = stable_hash({k: v for k, v in selected.items()
                                                    if k != "resolved_config_hash"})
-    print("VISUAL_PREPARE_START: 2 keys, RingID, 25 accepted references per key", flush=True)
+    print(f"VISUAL_PREPARE_START: {len(settings['key_ids'])} keys, RingID, 25 accepted references per key", flush=True)
     result = prepare_formal_removal(config=selected, assets_lock=assets,
         run_dir=root / "shared_preparation", run_id=run_id,
         key_ids=settings["key_ids"], project_root=project)

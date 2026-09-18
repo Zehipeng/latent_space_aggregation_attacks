@@ -1,0 +1,20 @@
+experiment_version: visual_ablation_v2
+method_label: FR-LA
+watermark: ringid
+model_setting: cross_model_sd2_target_sd14_vae_proxy
+key_ids: [key_002, key_003, key_004, key_005, key_006, key_007, key_008, key_009, key_010, key_011]
+group_keys:
+  forgery_lambda: [key_002, key_003]
+  forgery_N: [key_004, key_005]
+  removal_lambda: [key_006, key_007]
+  removal_N: [key_008, key_009]
+  removal_beta: [key_010, key_011]
+N_values: [1, 5, 25]
+lambda_values: [10000.0, 20000.0, 50000.0]
+beta_values: [1.0, 1.5, 2.0]
+main_N: 5
+main_lambda: 10000.0
+main_beta: 1.5
+iterations: 150
+learning_rate: 0.02
+save_difference: false
