@@ -15,7 +15,9 @@ sys.path.insert(0, str(PROJECT / "src"))
 from latent_space_aggregation_attacks.core.atomic_io import atomic_write_json
 from latent_space_aggregation_attacks.core.hashing import stable_hash, sha256_file
 from latent_space_aggregation_attacks.core.locking import UnitLock
-from latent_space_aggregation_attacks.trajectory.common import load_settings, MODEL
+from latent_space_aggregation_attacks.trajectory.common import (
+    load_settings, MODEL, configured_tasks, checkpoint_steps, units,
+)
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
@@ -28,14 +30,19 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()
     settings = load_settings(a.settings)
+    tasks = configured_tasks(settings)
     if a.dry_run:
-        print(json.dumps({"settings": settings, "attack_units": 320, "records": 5120,
-            "checkpoint_steps": list(range(0, 151, 10)), "formal_statistics": False}, indent=2))
+        attack_units = sum(len(units(task, settings)) for task in tasks)
+        print(json.dumps({"settings": settings, "attack_units": attack_units,
+            "records": attack_units * len(checkpoint_steps(settings)),
+            "checkpoint_steps": list(checkpoint_steps(settings)), "formal_statistics": False}, indent=2))
         return
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,100}", a.run_id):
         p.error("Invalid run-id")
     if a.phase in ("attack", "evaluate") and not a.task:
         p.error("--task is required")
+    if a.task and a.task not in tasks:
+        p.error(f"Task {a.task!r} is not approved by settings; expected one of {tasks}")
     for name in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "DIFFUSERS_OFFLINE", "HF_DATASETS_OFFLINE"):
         os.environ[name] = "1"
     if subprocess.run(["git", "diff", "--quiet", "HEAD", "--"], cwd=PROJECT).returncode:
@@ -50,7 +57,7 @@ def main():
         raise RuntimeError("At least 10 GiB free space required")
     root = output / "detector_trajectory" / a.run_id
     root.mkdir(parents=True, exist_ok=True)
-    identity = {"version": "detector_trajectory_v1", "run_id": a.run_id, "settings": settings,
+    identity = {"version": settings["experiment_version"], "run_id": a.run_id, "settings": settings,
         "git_sha": git_sha(PROJECT), "config_hash": config["resolved_config_hash"],
         "assets_hash": stable_hash(assets), "formal_statistics": False}
     ip = root / "run_identity.json"
@@ -62,10 +69,10 @@ def main():
     if a.phase == "run":
         with UnitLock(root / "workflow.lock"):
             phases = [("preflight", None), ("prepare", None)]
-            for task in ([a.task] if a.task else ["forgery", "removal"]):
+            selected_tasks = [a.task] if a.task else list(tasks)
+            for task in selected_tasks:
                 phases += [("attack", task), ("evaluate", task)]
-            if not a.task:
-                phases.append(("finalize", None))
+            phases.append(("finalize", a.task))
             for phase, task in phases:
                 subprocess.run(base + ["--phase", phase] + (["--task", task] if task else []), check=True, cwd=PROJECT)
         return
@@ -104,13 +111,15 @@ def main():
                 attack(assets, root, identity, a.task)
             elif a.phase == "evaluate":
                 from latent_space_aggregation_attacks.trajectory.evaluate import evaluate
-                evaluate(config, assets, root, a.task)
+                evaluate(config, assets, root, identity, a.task)
             else:
                 reports = []
-                for task in ("forgery", "removal"):
+                selected_tasks = [a.task] if a.task else list(tasks)
+                expected_rows = len(units(selected_tasks[0], settings)) * len(checkpoint_steps(settings))
+                for task in selected_tasks:
                     d = root / "evaluation" / task
                     report = json.loads((d / "report.json").read_text(encoding="utf-8"))
-                    if report["status"] != "COMPLETE" or report["rows"] != 2560:
+                    if report["status"] != "COMPLETE" or report["rows"] != expected_rows:
                         raise RuntimeError("Incomplete trajectory evaluation")
                     if sha256_file(d / "per_key_trajectory.csv") != report["per_key_sha256"] or sha256_file(d / "trajectory_summary.csv") != report["summary_sha256"]:
                         raise RuntimeError("Evaluation hash mismatch")

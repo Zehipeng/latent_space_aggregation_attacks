@@ -10,7 +10,7 @@ from ..formal.common import assets_by_name, formal_inputs, model_config, open_rg
 from ..latent_targets import forgery_target, removal_target
 from ..methods.baselines.jain import jain_forgery_target, jain_removal_mean_image
 from ..models.loaders import load_proxy_vae
-from .common import MODEL, units, checkpoint, verified
+from .common import MODEL, units, checkpoint, verified, checkpoint_steps
 
 def attack(assets, root, identity, task):
     import torch
@@ -23,25 +23,30 @@ def attack(assets, root, identity, task):
         grouped.setdefault((row["watermark"], row["key_id"]), []).append(row)
     vae = load_proxy_vae(model_config(amap, MODEL), offline=True)
     device, dtype = next(vae.parameters()).device, next(vae.parameters()).dtype
-    for index, (wm, method, key) in enumerate(units(task), 1):
+    settings = identity["settings"]
+    all_units = units(task, settings)
+    steps = checkpoint_steps(settings)
+    final_step = int(settings["iterations"])
+    record_every = int(settings["record_every"])
+    for index, (wm, method, key) in enumerate(all_units, 1):
         refs = sorted(grouped[(wm, key)], key=lambda r: int(r["selected_reference_index"]))
         if len(refs) != 25:
             raise RuntimeError("Expected 25 preregistered accepted references")
         for r in refs:
             if sha256_file(prep / r["image_path"]) != r["image_sha256"]:
                 raise RuntimeError("Reference hash mismatch")
-        n = 1 if method == "Single-Img" else 5
+        n = 1 if method == "Single-Img" else int(settings["N"])
         images = [open_rgb(prep / r["image_path"]) for r in refs[:n]]
         source = canonical_512(open_rgb(covers[key]["path"])) if task == "forgery" else images[0]
         input_hash = stable_hash({"source": __import__("hashlib").sha256(source.tobytes()).hexdigest(),
             "refs": refs[:n], "clean": [sha256_file(r["path"]) for r in clean[key][:5]],
             "task": task, "method": method, "watermark": wm})
-        paths = [checkpoint(root, task, wm, method, key, s) for s in range(0, 151, 10)]
+        paths = [checkpoint(root, task, wm, method, key, s) for s in steps]
         if all(p.is_file() for p in paths):
             records = [verified(p, root) for p in paths]
             if any(r["input_hash"] != input_hash for r in records):
                 raise RuntimeError("Checkpoint input identity changed")
-            print(f"TRAJECTORY_SKIP {task} {index}/160 {wm} {method} {key}", flush=True)
+            print(f"TRAJECTORY_SKIP {task} {index}/{len(all_units)} {wm} {method} {key}", flush=True)
             continue
         tensor = _image_tensor(source, device=device, dtype=dtype)
         latents = _encode(vae, images, batch_size=1)
@@ -51,9 +56,9 @@ def attack(assets, root, identity, task):
             with torch.inference_mode():
                 target = vae.encode(jain_removal_mean_image(tensor)).latent_dist.mode() / vae.config.scaling_factor
         else:
-            clean_images = [canonical_512(open_rgb(r["path"])) for r in clean[key][:5]]
+            clean_images = [canonical_512(open_rgb(r["path"])) for r in clean[key][:n]]
             target = removal_target(_encode(vae, [source], batch_size=1), latents,
-                                    _encode(vae, clean_images, batch_size=1), 1.5)
+                                    _encode(vae, clean_images, batch_size=1), float(settings["beta"]))
         seed = derive_seed("worker", "detector_trajectory_v1", task, wm, key)
         seed_runtime(seed, torch)
         unit = f"{task}|{wm}|{method}|{key}"
@@ -61,12 +66,14 @@ def attack(assets, root, identity, task):
         step, current, history, prior = 0, tensor, [], 0.0
         if state_path.exists():
             state = load_resume_state(state_path, expected_unit_id=unit, input_hash=input_hash,
-                resolved_config_hash=stable_hash(identity), protocol_version="detector_trajectory_v1", git_sha=identity["git_sha"])
+                resolved_config_hash=stable_hash(identity), protocol_version=identity["version"], git_sha=identity["git_sha"])
             step, current, history, prior = state.step, state.image_tensor, state.loss_history, state.timing["compute"]
             restore_rng_state(state.rng_state, torch)
-            if step not in range(0, 151, 10):
+            if step not in steps:
                 raise RuntimeError("Invalid resume step")
-            for s in range(0, step + 1, 10):
+            for s in steps:
+                if s > step:
+                    break
                 verified(checkpoint(root, task, wm, method, key, s), root)
         started = time.perf_counter()
         def save(at, image, losses):
@@ -74,17 +81,19 @@ def attack(assets, root, identity, task):
             png = path.with_suffix(".png")
             digest = atomic_png(png, _tensor_pil(image))
             atomic_write_json(path, {"task": task, "watermark": wm, "method": method, "key_id": key,
-                "step": at, "N": n, "lambda": 10000, "beta": 1.5 if task == "removal" and method == "FR-LA" else None,
+                "step": at, "N": n, "lambda": float(settings["lambda"]),
+                "beta": float(settings["beta"]) if task == "removal" and method == "FR-LA" else None,
                 "seed": seed, "model_setting": MODEL, "input_hash": input_hash,
                 "image_path": png.relative_to(root).as_posix(), "checkpoint_sha256": digest})
             save_resume_state(state_path, ResumeState(unit_id=unit, step=at, image_tensor=image.detach().cpu(),
                 loss_history=losses, rng_state=capture_rng_state(torch), timing={"compute": prior + time.perf_counter()-started},
-                input_hash=input_hash, resolved_config_hash=stable_hash(identity), protocol_version="detector_trajectory_v1", git_sha=identity["git_sha"]))
-            print(f"TRAJECTORY_CHECKPOINT {task} {index}/160 {wm} {method} {key} step={at}/150", flush=True)
+                input_hash=input_hash, resolved_config_hash=stable_hash(identity), protocol_version=identity["version"], git_sha=identity["git_sha"]))
+            print(f"TRAJECTORY_CHECKPOINT {task} {index}/{len(all_units)} {wm} {method} {key} step={at}/{final_step}", flush=True)
         if step == 0:
             save(0, tensor, [])
-        if step < 150:
-            optimize_fixed_budget(tensor, target, vae, lambda_pixel=10000, learning_rate=.02,
-                final_step=150, start_step=step, current_image=current, history=history,
-                checkpoint_callback=save, checkpoint_every=10)
-        atomic_write_json(root / f"{task}_progress.json", {"completed_units": index, "total_units": 160})
+        if step < final_step:
+            optimize_fixed_budget(tensor, target, vae, lambda_pixel=float(settings["lambda"]),
+                learning_rate=float(settings["learning_rate"]),
+                final_step=final_step, start_step=step, current_image=current, history=history,
+                checkpoint_callback=save, checkpoint_every=record_every)
+        atomic_write_json(root / f"{task}_progress.json", {"completed_units": index, "total_units": len(all_units)})

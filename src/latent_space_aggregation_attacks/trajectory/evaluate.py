@@ -7,21 +7,22 @@ from ..core.seeds import derive_seed, configure_torch_determinism
 from ..formal.common import assets_by_name, model_config, adapter_config, open_rgb, atomic_csv
 from ..models.loaders import load_target_pipeline
 from ..watermarks.base import registered_adapter
-from .common import MODEL, units, checkpoint, verified, summarize
+from .common import MODEL, units, checkpoint, verified, summarize, checkpoint_steps
 
-def evaluate(config, assets, root, task):
+def evaluate(config, assets, root, identity, task):
     import torch
     configure_torch_determinism(torch)
     # Verify complete task before enabling any detector evaluation.
+    settings = identity["settings"]
     pending = [(wm, method, key, step, verified(checkpoint(root, task, wm, method, key, step), root))
-               for wm, method, key in units(task) for step in range(0, 151, 10)]
+               for wm, method, key in units(task, settings) for step in checkpoint_steps(settings)]
     amap = assets_by_name(assets)
     pipe = load_target_pipeline(model_config(amap, MODEL), offline=True)
     rows = []
-    for wm in ("ringid", "gaussian_shading"):
+    for wm in settings["watermarks"]:
         adapter = registered_adapter(wm, adapter_config(config, wm, pipe, amap))
-        for method in ("Single-Img", "FR-LA"):
-            for i in range(40):
+        for method in settings["methods"]:
+            for i in range(int(settings["key_count"])):
                 key_id = f"key_{i:03d}"
                 key = adapter.create_key({"watermark_seed": derive_seed("watermark_key", wm, key_id)})
                 eligible = None
@@ -46,7 +47,7 @@ def evaluate(config, assets, root, task):
                     print(f"TRAJECTORY_EVALUATE {task} {wm} {method} {key_id} step={step}", flush=True)
     destination = root / "evaluation" / task
     atomic_csv(destination / "per_key_trajectory.csv", rows)
-    atomic_csv(destination / "trajectory_summary.csv", summarize(rows))
+    atomic_csv(destination / "trajectory_summary.csv", summarize(rows, settings))
     atomic_write_json(destination / "report.json", {"status": "COMPLETE", "task": task, "rows": len(rows),
         "formal_statistics": False, "per_key_sha256": sha256_file(destination / "per_key_trajectory.csv"),
         "summary_sha256": sha256_file(destination / "trajectory_summary.csv")})

@@ -1,7 +1,10 @@
 import ast
 from pathlib import Path
 import pytest
-from latent_space_aggregation_attacks.trajectory.common import EXPECTED, units, load_settings, summarize
+from latent_space_aggregation_attacks.trajectory.common import (
+    EXPECTED, REMOVAL_300_EXPECTED, checkpoint_steps, configured_tasks,
+    units, load_settings, summarize,
+)
 
 def test_contract():
     project = Path(__file__).resolve().parents[2]
@@ -11,17 +14,28 @@ def test_contract():
     with pytest.raises(ValueError):
         units("other")
 
+def test_removal_300_contract():
+    project = Path(__file__).resolve().parents[2]
+    settings = load_settings(project / "configs/diagnostics/single_img_vs_fr_la_removal_trajectory_300_v1.yaml")
+    assert settings == REMOVAL_300_EXPECTED
+    assert configured_tasks(settings) == ("removal",)
+    assert checkpoint_steps(settings) == tuple(range(0, 301, 10))
+    assert len(units("removal", settings)) == 160
+    assert len(units("removal", settings)) * len(checkpoint_steps(settings)) == 4960
+    with pytest.raises(ValueError):
+        units("forgery", settings)
+
 def test_detector_free_imports():
     project = Path(__file__).resolve().parents[2]
     source = project / "src/latent_space_aggregation_attacks/trajectory/attack.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
     assert all("watermark" not in (n.module or "") for n in ast.walk(tree) if isinstance(n, ast.ImportFrom))
 
-def synthetic_rows():
-    rows = [{"task":"forgery", "watermark":wm, "method":m, "key_id":f"key_{i:03d}",
+def synthetic_rows(settings=EXPECTED, task="forgery"):
+    rows = [{"task":task, "watermark":wm, "method":m, "key_id":f"key_{i:03d}",
         "step":s, "eligible":i == 0, "score":.2 if i == 0 else .9}
-        for wm in EXPECTED["watermarks"] for m in EXPECTED["methods"]
-        for i in range(40) for s in range(0,151,10)]
+        for wm in settings["watermarks"] for m in settings["methods"]
+        for i in range(settings["key_count"]) for s in checkpoint_steps(settings)]
     return rows
 
 def test_summary_all_40_arithmetic_mean():
@@ -29,6 +43,12 @@ def test_summary_all_40_arithmetic_mean():
     assert len(result) == 64
     assert all(r["sample_n"] == 40 and r["center"] == pytest.approx((.2 + 39*.9)/40) for r in result)
     assert all(r["aggregation"] == "arithmetic_mean" and "lower" not in r and "upper" not in r for r in result)
+
+def test_summary_removal_300_all_40_arithmetic_mean():
+    result = summarize(synthetic_rows(REMOVAL_300_EXPECTED, "removal"), REMOVAL_300_EXPECTED)
+    assert len(result) == 2 * 2 * 31
+    assert {r["step"] for r in result} == set(range(0, 301, 10))
+    assert all(r["sample_n"] == 40 and r["center"] == pytest.approx((.2 + 39*.9)/40) for r in result)
 
 @pytest.mark.parametrize("problem", ["missing", "duplicate", "nan", "out_of_range"])
 def test_summary_rejects_incomplete_or_invalid_data(problem):

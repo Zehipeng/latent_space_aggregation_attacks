@@ -1,0 +1,15 @@
+experiment_version: detector_trajectory_removal_300_v1
+key_count: 40
+iterations: 300
+record_every: 10
+model_setting: cross_model_sd2_target_sd14_vae_proxy
+watermarks: [ringid, gaussian_shading]
+methods: [Single-Img, FR-LA]
+learning_rate: 0.02
+lambda: 10000.0
+N: 5
+beta: 1.5
+aggregation: arithmetic_mean
+sample_policy: all_40_keys
+intervals: false
+tasks: [removal]
