@@ -257,3 +257,17 @@ Gaussian Shading官方ChaCha20变体及FPR=`1e-6`对应的bit-accuracy阈值。�
 
 `scripts/run_formal.py`已接通正式伪造与移除的准备、三方法攻击、独立最终目标密钥/质量/FID评价、
 最终表图、恢复和smoke门禁。v1.22不计算错误密钥接受率、Target rank、Top-1、RMSE、Wilson置信区间、配对检验或Holm校正，也不保存任何正式实验PNG。实际GPU smoke通过且ETA/磁盘报告经用户批准前不得启动200-key。
+
+## 受限访问补充实验
+
+`scripts/run_limited_access.py`是独立于E0--E7的附加入口。它固定为仅跨模型、每key一张水印图、
+五张非配对干净图，并以第一张干净图作为伪造源；移除与伪造共享同一方向估计，分别沿反向和
+正向优化。Tree-Ring、RingID、Gaussian Shading由一个编排器顺序运行，低ASR不会中止后续水印。
+冻结协议见`docs/protocols/limited_access_v1.0.md`，2-key与200-key配置位于`configs/additional/`。
+
+先用`--preflight-only --offline`核验资产；再运行与附加配置SHA绑定的Tree-Ring GPU回归门禁。
+首次带`--smoke-only`调用只生成12个终点和`runtime_estimate.json`，其中包含P50/P90、峰值显存与
+磁盘预算。只有之后使用相同run-id并显式添加`--approve-full-run`，才会开始1,200个正式终点。
+每50步原子保存活动单元，重跑相同命令会跳过哈希完整单元并恢复活动单元。攻击进程不导入检测器；
+最终评价只输出ASR、LPIPS、SSIM、PSNR、FID和Time，不计算L2/L∞。全部数值和哈希验证后，
+`prepared_inputs/`及`evaluation_spool/`中的PNG按清单清理，manifest、CSV、报告、日志和总结保留。

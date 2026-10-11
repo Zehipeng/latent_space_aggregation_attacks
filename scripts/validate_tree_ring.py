@@ -18,6 +18,9 @@ from latent_space_aggregation_attacks.core.hashing import stable_hash
 from latent_space_aggregation_attacks.formal.attack import _encode
 from latent_space_aggregation_attacks.formal.common import assets_by_name, open_rgb
 from latent_space_aggregation_attacks.core.preflight import preflight
+from latent_space_aggregation_attacks.models.asset_lock import (
+    load_and_verify_assets, require_offline, validate_formal_assets,
+)
 from latent_space_aggregation_attacks.core.seeds import configure_torch_determinism
 from latent_space_aggregation_attacks.attack import optimize_fixed_budget
 from latent_space_aggregation_attacks.latent_targets import forgery_target
@@ -49,7 +52,17 @@ def main() -> None:
     import torch
     determinism = configure_torch_determinism(torch)
 
-    checked = preflight(args.config, args.assets_lock, offline=args.offline)
+    try:
+        checked = preflight(args.config, args.assets_lock, offline=args.offline)
+    except ValueError as exc:
+        # Additional protocol families have their own strict config validator,
+        # while sharing the same pinned assets and Tree-Ring implementation.
+        from latent_space_aggregation_attacks.limited_access.config import load_config as load_limited_config
+        config = load_limited_config(args.config)
+        require_offline(args.offline)
+        locked = load_and_verify_assets(args.assets_lock)
+        validate_formal_assets(locked)
+        checked = {"config": config, "assets": locked, "status": "PREFLIGHT_PASSED"}
     config = checked["config"]
     assets = assets_by_name(checked["assets"])
     legacy_root = Path(args.legacy_project).resolve()
