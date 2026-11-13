@@ -54,11 +54,19 @@ def main() -> None:
 
     try:
         checked = preflight(args.config, args.assets_lock, offline=args.offline)
-    except ValueError as exc:
+    except ValueError:
         # Additional protocol families have their own strict config validator,
         # while sharing the same pinned assets and Tree-Ring implementation.
-        from latent_space_aggregation_attacks.limited_access.config import load_config as load_limited_config
-        config = load_limited_config(args.config)
+        from latent_space_aggregation_attacks.limited_access.config import (
+            load_config as load_limited_config,
+        )
+        from latent_space_aggregation_attacks.reviewer_single_reference.config import (
+            load_config as load_single_reference_config,
+        )
+        try:
+            config = load_limited_config(args.config)
+        except ValueError:
+            config = load_single_reference_config(args.config)
         require_offline(args.offline)
         locked = load_and_verify_assets(args.assets_lock)
         validate_formal_assets(locked)

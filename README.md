@@ -271,3 +271,17 @@ Gaussian Shading官方ChaCha20变体及FPR=`1e-6`对应的bit-accuracy阈值。�
 每50步原子保存活动单元，重跑相同命令会跳过哈希完整单元并恢复活动单元。攻击进程不导入检测器；
 最终评价只输出ASR、LPIPS、SSIM、PSNR、FID和Time，不计算L2/L∞。全部数值和哈希验证后，
 `prepared_inputs/`及`evaluation_spool/`中的PNG按清单清理，manifest、CSV、报告、日志和总结保留。
+
+## 审稿回复：单水印参考完整实验
+
+`scripts/run_reviewer_single_reference.py`实现独立的
+`reviewer_single_reference_v1.0`，不改写v1.22正式实验或受限访问实验。每个条件严格只用一张
+水印参考图，并同时覆盖同模型SD1.4/SD1.4与跨模型SD2/SD1.4、三种水印、伪造和移除。
+它采用单因素矩阵：`N_clean={1,5,25}`、`lambda={10000,20000,50000}`，以及仅用于移除的
+`beta={1.0,1.5,2.0}`；共享主设置去重后共72个条件。2-key smoke产生144个输出，200-key
+正式运行产生14,400个输出。冻结定义、评价列、恢复与清理规则见
+`docs/protocols/reviewer_single_reference_v1.0.md`。
+
+实验必须先对相同提交和资产锁运行Tree-Ring回归，再使用`--smoke-only`完成完整2-key矩阵。
+审阅smoke报告、P50/P90与磁盘估计后，以相同run-id添加`--approve-full-run`才会启动200-key。
+AutoDL配置位于`configs/additional/`，实验室服务器配置位于`configs/server/`。

@@ -1,0 +1,30 @@
+protocol_version: reviewer_single_reference_v1.0
+run_mode: smoke
+master_seed: 205
+output_root: /project/zengzhipeng/outputs
+key_count: 2
+model_settings: [same_model_sd14_target_sd14_vae_proxy, cross_model_sd2_target_sd14_vae_proxy]
+watermarks: [tree_ring, ringid, gaussian_shading]
+tasks: [forgery, removal]
+watermarked_reference_count: 1
+clean_reference_values: [1, 5, 25]
+lambda_values: [10000.0, 20000.0, 50000.0]
+beta_values: [1.0, 1.5, 2.0]
+main_N_clean: 5
+main_lambda: 20000.0
+main_beta: 1.5
+forgery_source_clean_index: 0
+candidate_limit: 64
+learning_rate: 0.02
+steps: 150
+resume_every: 50
+attack_batch_size: 1
+reference_encode_batch_size: 1
+inversion_batch_size: 1
+online_detection: false
+early_stop: false
+metrics: [ASR, LPIPS, SSIM, PSNR, FID, Time, InitialScore, FinalScore, ThresholdMargin]
+watermark_runtime:
+  tree_ring: {channel: 0, radius: 16, p_value_threshold: 0.05, generation_steps: 50, inversion_steps: 50}
+  ringid: {radius: 14, radius_cutoff: 3, ring_value_range: 64, p_value_threshold: 0.05, generation_steps: 50, inversion_steps: 50}
+  gaussian_shading: {cipher: chacha20, channel_copy: 1, hw_copy: 8, fpr: 0.000001, bit_accuracy_threshold: 0.6484375, generation_steps: 50, inversion_steps: 50}
