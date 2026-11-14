@@ -10,7 +10,11 @@ import numpy as np
 from latent_space_aggregation_attacks import MASTER_SEED, SEED_NAMESPACE_VERSION
 
 NAMESPACES = frozenset(
-    {"generation", "watermark_key", "data_order", "transform", "budget_pilot", "worker"}
+    {
+        "generation", "watermark_key", "data_order", "transform",
+        "budget_pilot", "worker", "reviewer_selection",
+        "reviewer_clean_subset",
+    }
 )
 
 # This must be present before CUDA creates a cuBLAS workspace. ``setdefault``

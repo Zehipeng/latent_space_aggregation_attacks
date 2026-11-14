@@ -5,7 +5,9 @@ __pycache__/
 /data/
 /assets/
 outputs/
+analysis_outputs/
 实验结果/
+*.bundle
 *.pt
 *.pth
 *.ckpt

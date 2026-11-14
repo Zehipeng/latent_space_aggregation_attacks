@@ -5,3 +5,6 @@ def test_seed_is_stable_and_namespaced():
     # v1.10 intentionally preserves the v1.9 allocation after partial P0
     # outcomes were inspected; this value prevents accidental resampling.
     assert derive_seed("generation", "key_000", 0) == 7234807512585519121
+    assert derive_seed("reviewer_selection", 17, "key_000") != derive_seed(
+        "reviewer_clean_subset", 17, "key_000"
+    )
