@@ -23,8 +23,8 @@ E2 and E4 share preparation artifacts but produce separate tables and claims:
 - Tasks: forgery and removal.
 - Method: proposed latent-aggregation attack only.
 - Watermarked reference count: `N_w=25`.
-- Clean reference count for the main removal direction: `N_c=5`.
-- Fidelity weight: `lambda=20000`.
+- Clean reference count for the attacked removal direction: `N_c=25`.
+- Fidelity weight: `lambda=10000`.
 - Removal strength: `beta=1.5`.
 - Optimization: 150 steps, learning rate 0.02, scalar batch size one.
 - No detector queries, detector imports or early stopping in the attack worker.
@@ -49,6 +49,13 @@ detector, candidate scores or acceptance flags.
 
 The original v1.22 ordered-verified baseline is reused by immutable manifest and
 result hash; it is not attacked again in the formal E2 run.
+
+After E2 evaluation, `scripts/analysis/merge_e2_ordered_baseline.py` verifies
+the `checksums.sha256` files of the completed v1.22 forgery and removal runs,
+selects only proposed-method `N=25`, `lambda=10000`, 150-step rows (and
+`beta=1.5` for removal), and creates paired-by-key comparisons. This post-run
+merge is mandatory before E2 is considered analysis-complete; it performs no
+new GPU attack.
 
 New strategies use the same 64-image bank:
 
@@ -81,14 +88,16 @@ analyses before temporary images are cleaned:
 - same-key centroid for each E2 strategy;
 - deterministic shuffled-key centroid using the cyclic derangement
   `key_i -> key_(i+1 mod K)`;
-- clean centroid from the main five clean references.
+- clean centroid from the full 25-image attacked clean prior.
 
 The manifest records every source key and target key. Same-key and shuffled-key
 quantities are never mixed in an attack target.
 
 ### Clean-set direction stability
 
-From the locked 25-image clean prior, construct five deterministic `N_c=5`
+The attacked removal direction uses the full locked 25-image clean prior, which
+is exactly compatible with the immutable v1.22 `N=25`, `lambda=10000`,
+`beta=1.5` baseline. As additional controls, construct five deterministic `N_c=5`
 subsets using seeds 101, 103, 107, 109 and 113. Record for every subset:
 
 - clean centroid norm;

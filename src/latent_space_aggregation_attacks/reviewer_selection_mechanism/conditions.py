@@ -13,8 +13,8 @@ class SelectionCondition:
     model_setting: str
     selection_strategy: str
     N_watermarked: int = 25
-    N_clean: int = 5
-    lambda_pixel: float = 20000.0
+    N_clean: int = 25
+    lambda_pixel: float = 10000.0
     beta: float = 1.5
 
     @property
@@ -41,8 +41,8 @@ def validate_registry(conditions: list[SelectionCondition]) -> None:
     for condition in conditions:
         if (
             condition.N_watermarked != 25
-            or condition.N_clean != 5
-            or condition.lambda_pixel != 20000.0
+            or condition.N_clean != 25
+            or condition.lambda_pixel != 10000.0
             or condition.beta != 1.5
         ):
             raise ValueError("E2 main attack settings changed")

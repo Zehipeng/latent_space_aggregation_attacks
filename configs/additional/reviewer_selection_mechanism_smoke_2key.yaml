@@ -8,8 +8,8 @@ watermarks: [tree_ring, ringid, gaussian_shading]
 tasks: [forgery, removal]
 candidate_limit: 64
 watermarked_reference_count: 25
-clean_reference_count: 5
-lambda_pixel: 20000.0
+clean_reference_count: 25
+lambda_pixel: 10000.0
 beta: 1.5
 selection_strategy_seeds: [17, 29, 43]
 clean_subset_seeds: [101, 103, 107, 109, 113]

@@ -63,10 +63,16 @@ def main() -> None:
         from latent_space_aggregation_attacks.reviewer_single_reference.config import (
             load_config as load_single_reference_config,
         )
+        from latent_space_aggregation_attacks.reviewer_selection_mechanism.config import (
+            load_config as load_selection_mechanism_config,
+        )
         try:
             config = load_limited_config(args.config)
         except ValueError:
-            config = load_single_reference_config(args.config)
+            try:
+                config = load_single_reference_config(args.config)
+            except ValueError:
+                config = load_selection_mechanism_config(args.config)
         require_offline(args.offline)
         locked = load_and_verify_assets(args.assets_lock)
         validate_formal_assets(locked)

@@ -8,3 +8,9 @@ def test_formal_attack_process_has_no_detector_dependency():
     text=(root/"src/latent_space_aggregation_attacks/formal/attack.py").read_text(encoding="utf-8")
     forbidden=("registered_adapter","load_target_pipeline",".detect(","watermarks")
     assert all(value not in text for value in forbidden)
+
+def test_reviewer_selection_attack_process_has_no_detector_dependency():
+    root=Path(__file__).resolve().parents[2]
+    text=(root/"src/latent_space_aggregation_attacks/reviewer_selection_mechanism/attack.py").read_text(encoding="utf-8")
+    forbidden=("registered_adapter","load_target_pipeline",".detect(","watermarks")
+    assert all(value not in text for value in forbidden)

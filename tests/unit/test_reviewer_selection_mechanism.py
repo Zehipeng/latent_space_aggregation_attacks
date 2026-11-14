@@ -17,6 +17,12 @@ from latent_space_aggregation_attacks.reviewer_selection_mechanism.strategies im
     shuffled_key,
     strategy_registry,
 )
+from latent_space_aggregation_attacks.reviewer_selection_mechanism.analysis import (
+    clustered_spearman_ci,
+    paired_strategy_differences,
+    spearman,
+    wilson_interval,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,6 +42,9 @@ def test_condition_matrix_is_complete() -> None:
     assert len({condition.id for condition in conditions}) == 48
     assert len(conditions) * 2 == 96
     assert len(conditions) * 200 == 9600
+    assert {condition.N_watermarked for condition in conditions} == {25}
+    assert {condition.N_clean for condition in conditions} == {25}
+    assert {condition.lambda_pixel for condition in conditions} == {10000.0}
 
 
 def test_selection_is_deterministic_and_separated() -> None:
@@ -103,3 +112,27 @@ def test_smoke_and_formal_configs_are_compatible() -> None:
         ROOT / "configs/additional/reviewer_selection_mechanism_formal_200key.yaml"
     )
     assert compatibility_hash(smoke) == compatibility_hash(formal)
+
+
+def test_e2_e4_statistics_preserve_pairing_and_key_clusters() -> None:
+    low, high = wilson_interval(0, 200)
+    assert low == 0.0 and 0.0 < high < 0.03
+    assert spearman([1, 2, 3], [3, 2, 1]) == pytest.approx(-1.0)
+    rows = [
+        {"key_id": f"key_{index:03d}", "selection_strategy": strategy,
+         "success": value, "distance": float(index), "score": float(index * 2)}
+        for index in range(4)
+        for strategy, value in (("a", 1), ("b", 0))
+    ]
+    paired = paired_strategy_differences(
+        rows, strategy_a="a", strategy_b="b", metric="success",
+        seed=7, replicates=100,
+    )
+    assert paired["paired_n"] == 4
+    assert paired["mean_difference_a_minus_b"] == 1.0
+    estimate, low, high, clusters = clustered_spearman_ci(
+        rows, "distance", "score", seed=9, replicates=100,
+    )
+    assert estimate == pytest.approx(1.0)
+    assert low == pytest.approx(1.0) and high == pytest.approx(1.0)
+    assert clusters == 4
