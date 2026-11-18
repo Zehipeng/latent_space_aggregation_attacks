@@ -114,6 +114,34 @@ def test_smoke_and_formal_configs_are_compatible() -> None:
     assert compatibility_hash(smoke) == compatibility_hash(formal)
 
 
+def test_budget_50_profile_preserves_the_full_factorial_method() -> None:
+    smoke = load_config(
+        ROOT / "configs/additional/reviewer_selection_mechanism_smoke_2key.yaml"
+    )
+    budget = load_config(
+        ROOT / "configs/additional/reviewer_selection_mechanism_supplemental_50key.yaml"
+    )
+    assert budget["key_count"] == 50
+    assert budget["execution_profile"] == "supplemental_50key_full_factorial"
+    assert len(condition_registry()) * budget["key_count"] == 2400
+    assert compatibility_hash(smoke) == compatibility_hash(budget)
+
+
+def test_unlabelled_50_key_formal_config_is_rejected(tmp_path: Path) -> None:
+    source = (
+        ROOT / "configs/additional/reviewer_selection_mechanism_supplemental_50key.yaml"
+    ).read_text(encoding="utf-8")
+    path = tmp_path / "unlabelled.yaml"
+    path.write_text(
+        source.replace(
+            "execution_profile: supplemental_50key_full_factorial\n", ""
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="supplemental_50key_full_factorial"):
+        load_config(path)
+
+
 def test_e2_e4_statistics_preserve_pairing_and_key_clusters() -> None:
     low, high = wilson_interval(0, 200)
     assert low == 0.0 and 0.0 < high < 0.03

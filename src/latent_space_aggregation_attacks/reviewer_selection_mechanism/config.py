@@ -50,8 +50,21 @@ def load_config(path: str | Path) -> dict[str, Any]:
     mode = value.get("run_mode")
     if mode not in {"smoke", "formal"}:
         raise ValueError("run_mode must be smoke or formal")
-    if int(value.get("key_count", -1)) != (2 if mode == "smoke" else 200):
-        raise ValueError("smoke/formal key_count must be 2/200")
+    key_count = int(value.get("key_count", -1))
+    profile = value.get("execution_profile")
+    if mode == "smoke" and key_count != 2:
+        raise ValueError("smoke key_count must be 2")
+    if mode == "formal":
+        valid_formal = key_count == 200 and profile in {None, "formal_200key"}
+        valid_budget = (
+            key_count == 50
+            and profile == "supplemental_50key_full_factorial"
+        )
+        if not (valid_formal or valid_budget):
+            raise ValueError(
+                "formal runs must use either 200 keys (formal_200key) or "
+                "50 keys (supplemental_50key_full_factorial)"
+            )
     output = PurePosixPath(str(value.get("output_root", "")))
     if not output.is_absolute() or output.name != "outputs":
         raise ValueError("output_root must be an absolute Linux path named outputs")
@@ -66,5 +79,10 @@ def load_config(path: str | Path) -> dict[str, Any]:
 
 
 def compatibility_hash(config: dict[str, Any]) -> str:
-    ignored = {"_source_path", "resolved_config_hash", "run_mode", "key_count"}
+    # The smoke gate covers frozen method/condition settings. Sample size and
+    # the explicitly labelled execution profile are run-scale properties.
+    ignored = {
+        "_source_path", "resolved_config_hash", "run_mode", "key_count",
+        "execution_profile",
+    }
     return stable_hash({key: value for key, value in config.items() if key not in ignored})

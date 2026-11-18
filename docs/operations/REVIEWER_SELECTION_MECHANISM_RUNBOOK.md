@@ -105,3 +105,61 @@ performs paired-by-key analysis; it does not launch GPU attacks.
 
 E2 is analysis-complete only when
 `evaluation/e2_baseline_provenance.json` reports `COMPLETE`.
+
+## 7. Time-bounded 50-key full-factorial profile
+
+Use this profile only when the 50-key evidence boundary in
+`docs/protocols/reviewer_selection_mechanism_budget50_addendum.md` is acceptable.
+It retains all 48 conditions and produces 2,400 attacks. Never overwrite or
+rename the source 200-key run.
+
+After the source preparation has completed at least the first 50 keys for every
+model/watermark tuple (group count 1,050 in the canonical order), stop that run
+and seed a new destination:
+
+```bash
+SOURCE_RUN=/root/autodl-tmp/outputs/reviewer_selection_mechanism/reviewer_selection_mechanism_v1p0_4090d_r2
+BUDGET_RUN_ID=reviewer_selection_mechanism_v1p0_budget50_4090d_r1
+BUDGET_RUN=/root/autodl-tmp/outputs/reviewer_selection_mechanism/$BUDGET_RUN_ID
+
+python scripts/operations/reuse_reviewer_candidate_bank.py \
+  --source-run "$SOURCE_RUN" \
+  --destination-run "$BUDGET_RUN" \
+  --destination-run-id "$BUDGET_RUN_ID" \
+  --key-count 50
+```
+
+Expected: 300 candidate groups and 19,200 hash-verified images, normally created
+as same-filesystem hard links. Then run exact-commit regression and a fresh
+two-key smoke under the new commit before approving the budget run:
+
+```bash
+CONFIG=configs/additional/reviewer_selection_mechanism_supplemental_50key.yaml
+SMOKE=configs/additional/reviewer_selection_mechanism_smoke_2key.yaml
+REGRESSION=/root/autodl-tmp/outputs/regression/${BUDGET_RUN_ID}_tree_ring.json
+
+python scripts/validate_tree_ring.py \
+  --config "$CONFIG" \
+  --assets-lock local_assets/assets.lock.json \
+  --legacy-project /root/autodl-tmp/project/jain_multiref_latent_experiment_legacy \
+  --output "$REGRESSION" \
+  --offline
+
+python scripts/run_reviewer_selection_mechanism.py \
+  --config "$CONFIG" \
+  --smoke-config "$SMOKE" \
+  --assets-lock local_assets/assets.lock.json \
+  --run-id "$BUDGET_RUN_ID" \
+  --tree-ring-regression-report "$REGRESSION" \
+  --offline \
+  --smoke-only
+
+python scripts/run_reviewer_selection_mechanism.py \
+  --config "$CONFIG" \
+  --smoke-config "$SMOKE" \
+  --assets-lock local_assets/assets.lock.json \
+  --run-id "$BUDGET_RUN_ID" \
+  --tree-ring-regression-report "$REGRESSION" \
+  --offline \
+  --approve-full-run
+```

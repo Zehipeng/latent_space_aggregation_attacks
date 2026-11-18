@@ -33,13 +33,16 @@ def main() -> None:
     lock = load_and_verify_assets(args.assets_lock)
     assets = validate_formal_assets(lock)
     if args.preflight_only:
+        key_count = int(config["key_count"])
         print(json.dumps({
             "status": "PREFLIGHT_PASSED",
             "protocol_version": config["protocol_version"],
             "verified_assets": sorted(assets), "asset_count": len(assets),
             "condition_count": 48,
             "expected_smoke_outputs": 96,
-            "expected_formal_outputs": 9600,
+            "expected_formal_outputs": 48 * key_count,
+            "key_count": key_count,
+            "execution_profile": config.get("execution_profile", "formal_200key"),
         }, indent=2))
         return
     for name in ("smoke_config", "run_id", "tree_ring_regression_report"):

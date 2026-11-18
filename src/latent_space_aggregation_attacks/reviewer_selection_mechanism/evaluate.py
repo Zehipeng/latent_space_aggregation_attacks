@@ -491,6 +491,8 @@ def evaluate(
         "# E2参考选择与E4机制实验总结", "",
         f"- 状态：{'SMOKE_PASSED' if smoke else 'COMPLETE'}",
         f"- 协议：{PROTOCOL_VERSION}", f"- run_id：{run_id}",
+        f"- execution_profile：{config.get('execution_profile', 'formal_200key')}",
+        f"- key_count：{len(key_ids)}",
         f"- 最终攻击输出：{len(rows)}", f"- 机制检查点：{len(trajectory)}",
         "- E2：四种新增参考选择策略，按密钥配对比较。",
         "- E4：同密钥/错密钥/干净中心、干净子集、Inception特征匹配控制及聚类bootstrap相关性。",
@@ -525,6 +527,12 @@ def evaluate(
         root / "protocol_snapshot/reviewer_selection_mechanism_v1.0.md",
         summary_path,
     ]
+    for optional in (
+        root / "manifests/candidate_bank_reuse.json",
+        root / "protocol_snapshot/reviewer_selection_mechanism_budget50_addendum.md",
+    ):
+        if optional.is_file():
+            persistent.append(optional)
     atomic_write_text(root / "checksums.sha256", "\n".join(
         f"{sha256_file(path)}  {path.relative_to(root).as_posix()}"
         for path in persistent

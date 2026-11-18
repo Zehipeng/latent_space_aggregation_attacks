@@ -33,6 +33,11 @@ E2 and E4 share preparation artifacts but produce separate tables and claims:
 - Fixed assets, prompt universe, clean-image universe and watermark thresholds
   are inherited from formal v1.22 and must pass the exact-commit regression gate.
 
+The separately labelled `supplemental_50key_full_factorial` execution profile is
+defined only by `reviewer_selection_mechanism_budget50_addendum.md`. It preserves
+all conditions while reducing the frozen key set to `key_000`--`key_049`; it must
+not be represented as the 200-key formal profile.
+
 ## Full candidate bank
 
 Preparation deterministically regenerates all 64 preregistered candidates for

@@ -83,6 +83,11 @@ def prepare(
         project / "docs/protocols/reviewer_selection_mechanism_v1.0.md",
         root / "protocol_snapshot/reviewer_selection_mechanism_v1.0.md",
     )
+    if config.get("execution_profile") == "supplemental_50key_full_factorial":
+        shutil.copy2(
+            project / "docs/protocols/reviewer_selection_mechanism_budget50_addendum.md",
+            root / "protocol_snapshot/reviewer_selection_mechanism_budget50_addendum.md",
+        )
     atomic_write_json(
         root / "protocol_snapshot/config_resolved.json",
         {key: value for key, value in config.items() if not key.startswith("_")},
@@ -323,6 +328,8 @@ def prepare(
     report = {
         "status": "PREPARATION_COMPLETE",
         "protocol_version": PROTOCOL_VERSION,
+        "execution_profile": config.get("execution_profile", "formal_200key"),
+        "key_count": len(key_ids),
         "candidate_count": len(candidate_rows),
         "selected_reference_rows": len(selection_rows),
         "eligible_selection_groups": len(selection_rows) // 25,
